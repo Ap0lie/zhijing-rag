@@ -15,6 +15,7 @@
   <img alt="PostgreSQL 17" src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white">
   <img alt="OpenSearch 3.7" src="https://img.shields.io/badge/OpenSearch-3.7-005EB8?logo=opensearch&logoColor=white">
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Apache License 2.0" src="https://img.shields.io/badge/License-Apache_2.0-D22128?logo=apache&logoColor=white">
 </p>
 
 Zhijing RAG puts document ingestion, hybrid retrieval, Local/Global GraphRAG, grounded citations, authorization checks, evaluation, and operations on one traceable path. PostgreSQL is the authoritative source for ACLs, current revisions, citations, and generations; OpenSearch contains rebuildable retrieval projections only.
@@ -24,7 +25,7 @@ Terminology: a revision is an immutable document version, a Child is a searchabl
 > [!IMPORTANT]
 > This project is under active development. The included Compose stack targets local development and evaluation; it is not a production template that should be exposed to the public internet unchanged.
 
-[Capabilities](#capabilities) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Formats](#supported-formats) · [Models](#models-and-optional-capabilities) · [Evaluation](#evaluation) · [Security](#security-boundaries)
+[Capabilities](#capabilities) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Formats](#supported-formats) · [Models](#models-and-optional-capabilities) · [Evaluation](#evaluation) · [Security](#security-boundaries) · [License](#license)
 
 ## Capabilities
 
@@ -50,7 +51,7 @@ Run these steps after cloning the repository and entering its root directory.
 
 ### 1. Start the base stack
 
-For a new database, set both bootstrap administrator variables. The password must be 8–72 UTF-8 bytes.
+For a new database, set both bootstrap administrator variables. The password must contain at least 8 characters and at most 72 UTF-8 bytes. Copy [`.env.example`](./.env.example) to `.env` and set a strong password, or set the following environment variables directly.
 
 PowerShell:
 
@@ -288,6 +289,7 @@ python -m unittest discover mineru/tests -v
 
 ## Security boundaries
 
+- Report suspected vulnerabilities through GitHub Private Vulnerability Reporting as described in the [security policy](./SECURITY.md); do not disclose details in a public issue.
 - PostgreSQL is authoritative for ACLs, current revisions, generations, and citations. An OpenSearch hit cannot authorize content by itself.
 - The MinIO bucket remains private. Downloads are authorized by the Backend; public object URLs are not returned.
 - `/api/v1/admin/**` requires ADMIN. Other business APIs require authentication, and state-changing requests are protected by CSRF.
@@ -321,9 +323,13 @@ docker compose down
 
 ## Before publishing
 
-- The repository does not yet have a top-level open-source license. Add a `LICENSE` before public release.
+- Project code is licensed under the [Apache License 2.0](./LICENSE); third-party components and datasets remain subject to their respective licenses.
 - HotpotQA, CRUD_RAG, and other third-party datasets or derivatives are not committed; local use still follows each source's license and attribution requirements.
 - Rotate credentials used locally and inspect Git history, backups, evaluation corpora, and screenshots before making the repository public.
+
+## License
+
+Copyright 2026 Ap0lie. Project code is licensed under the [Apache License 2.0](./LICENSE).
 
 ---
 

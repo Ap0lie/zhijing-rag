@@ -15,6 +15,7 @@
   <img alt="PostgreSQL 17" src="https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white">
   <img alt="OpenSearch 3.7" src="https://img.shields.io/badge/OpenSearch-3.7-005EB8?logo=opensearch&logoColor=white">
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Apache License 2.0" src="https://img.shields.io/badge/License-Apache_2.0-D22128?logo=apache&logoColor=white">
 </p>
 
 知境 RAG 将文档接入、混合检索、Local/Global GraphRAG、证据引用、权限复核、评测与运维放在一条可追溯主链中。PostgreSQL 保存 ACL、当前 Revision、Citation 和 Generation 等权威事实；OpenSearch 只承担可重建的检索投影。
@@ -24,7 +25,7 @@
 > [!IMPORTANT]
 > 项目仍在持续开发。仓库中的 Compose 面向单机开发与评测，不是可以原样暴露到公网的生产部署模板。
 
-[核心能力](#核心能力) · [快速开始](#快速开始) · [架构](#架构) · [支持格式](#支持格式) · [模型与可选能力](#模型与可选能力) · [评测](#评测) · [安全边界](#安全边界)
+[核心能力](#核心能力) · [快速开始](#快速开始) · [架构](#架构) · [支持格式](#支持格式) · [模型与可选能力](#模型与可选能力) · [评测](#评测) · [安全边界](#安全边界) · [许可证](#许可证)
 
 ## 核心能力
 
@@ -50,7 +51,7 @@
 
 ### 1. 启动基础服务
 
-首次使用全新数据库时，必须同时设置管理员用户名和密码。密码长度为 8–72 UTF-8 bytes。
+首次使用全新数据库时，必须同时设置管理员用户名和密码。密码至少 8 个字符，且不超过 72 UTF-8 bytes。可以复制 [`.env.example`](./.env.example) 为 `.env` 并设置强密码，也可以直接设置以下环境变量。
 
 PowerShell：
 
@@ -288,6 +289,7 @@ python -m unittest discover mineru/tests -v
 
 ## 安全边界
 
+- 发现潜在漏洞时，请按 [安全策略](./SECURITY.md) 使用 GitHub 私密漏洞报告，不要在公开 Issue 中披露细节。
 - PostgreSQL 是 ACL、当前 Revision、Generation 和 Citation 的权威来源；OpenSearch 命中不能单独授权正文。
 - MinIO bucket 保持私有，下载由 Backend 鉴权，不返回公共对象 URL。
 - `/api/v1/admin/**` 仅允许 ADMIN；其余业务 API 要求登录，状态变更请求受 CSRF 保护。
@@ -321,9 +323,13 @@ docker compose down
 
 ## 公开发布前
 
-- 仓库当前尚未选择顶层开源许可证；公开发布前应添加 `LICENSE`。
+- 项目代码使用 [Apache License 2.0](./LICENSE)；第三方组件与数据仍适用各自的许可证。
 - HotpotQA、CRUD_RAG 等第三方数据集及其派生物不随仓库提交；本地使用仍须遵守各自许可证和署名要求。
 - 公开仓库前应轮换曾在本地使用的密钥，并检查 Git 历史、备份、评测语料和截图。
+
+## 许可证
+
+Copyright 2026 Ap0lie。项目代码依据 [Apache License 2.0](./LICENSE) 授权。
 
 ---
 
