@@ -1,0 +1,38 @@
+{
+  "version": "answer-citation-release-v4",
+  "language": "en",
+  "cases": [
+    {
+      "caseKey": "cyberghost-security",
+      "input": {"query": "Which security measures did Engadget say CyberGhost used?"},
+      "expected": {"shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:a83246476eedf95d78fd5304a2220db2"}
+      ]
+    },
+    {
+      "caseKey": "sony-headphones-value",
+      "input": {"query": "What did Wired say about the value of Sony headphones during the Cyber Monday sale?"},
+      "expected": {"shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:5ffa3c917c43000b027f85a13a3a8576"}
+      ]
+    },
+    {
+      "caseKey": "polygon-gaming-platforms",
+      "input": {"query": "Which gaming platforms did Polygon mention?"},
+      "expected": {"shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:7a549848c6902404b9eefa0a28876848"}
+      ]
+    },
+    {
+      "caseKey": "refusal-project-zephyr-9",
+      "input": {"query": "According to the cited public article, what is the exact launch date of Project Zephyr-9?"},
+      "expected": {"shouldRefuse": true},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:a6f1d4267eb2c248917e2ded7038039b"}
+      ]
+    }
+  ]
+}

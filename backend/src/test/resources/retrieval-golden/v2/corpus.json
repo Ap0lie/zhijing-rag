@@ -1,0 +1,300 @@
+{
+  "version": "phase6-retrieval-corpus-v2",
+  "documents": [
+    {
+      "key": "acl-governance-zh",
+      "title": "知识库访问控制规范",
+      "language": "zh",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "acl-immediate-deny",
+          "headingPath": ["权限变更", "即时拒绝"],
+          "startPage": 1,
+          "endPage": 1,
+          "text": "文档撤权或删除的事务一旦提交，搜索、下载、引用和回答必须立即拒绝访问。OpenSearch 与对象存储中的物理投影允许在六十秒内完成清理，但这段时间不是访问宽限期。",
+          "sourceTextHash": "682287f039f886262bbbc79ff4cb33336b2d308b12376e07bfd9c19127e7ea2f"
+        },
+        {
+          "key": "session-authz-epoch",
+          "headingPath": ["权限变更", "会话失效"],
+          "startPage": 2,
+          "endPage": 2,
+          "text": "用户被禁用、角色被修改或密码被重置时，服务端递增 authzEpoch 并注销该用户的全部现有 Session；旧 Cookie 从下一次请求开始返回未认证。",
+          "sourceTextHash": "66d37547fe37e706093292468558743486379f1d8bcc3a51dd83b2e9d25c1282"
+        }
+      ]
+    },
+    {
+      "key": "retrieval-design-en",
+      "title": "Hybrid Retrieval Design",
+      "language": "en",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "parent-child-contract",
+          "headingPath": ["Retrieval", "Parent Child Contract"],
+          "startPage": 1,
+          "endPage": 1,
+          "text": "Only child chunks participate in first-stage retrieval and reranking. After ranking, the service may attach a bounded parent window from the same document and revision, while the matched child remains the evidence and citation anchor.",
+          "sourceTextHash": "0ae62a144ee1f58aedb69cf28210aaa0fa24bb46be73838bb54b2cf15c86e330"
+        },
+        {
+          "key": "hybrid-fallback",
+          "headingPath": ["Retrieval", "Failure Degradation"],
+          "startPage": 2,
+          "endPage": 2,
+          "text": "If query embedding or vector search fails, retrieval continues with BM25 and uses the reranker when it is healthy. If reranking fails, the service returns RRF order; when both model channels fail, it falls back to BM25.",
+          "sourceTextHash": "653519db3c89e7308f5d77b5b9d899b60796b2149c7a6b0056f636988cea58bd"
+        }
+      ]
+    },
+    {
+      "key": "index-operations-zh",
+      "title": "检索索引发布手册",
+      "language": "zh",
+      "revisionKey": "r2",
+      "passages": [
+        {
+          "key": "generation-publication",
+          "headingPath": ["整代索引", "发布与回滚"],
+          "startPage": 3,
+          "endPage": 3,
+          "text": "新索引 Generation 完成构建和校验后只进入 READY，必须由管理员显式发布才切换 Alias。系统至少保留最近两个 Generation，并保证回滚窗口不少于二十四小时。",
+          "sourceTextHash": "f39d599398e021a88d75394fe4ee9554a638b75dc93f566771da560029260d97"
+        },
+        {
+          "key": "revision-publication",
+          "headingPath": ["单文档更新", "Revision 发布"],
+          "startPage": 4,
+          "endPage": 4,
+          "text": "单份文档的新 Revision 完成索引后，只更新 PostgreSQL 的 currentRevisionId，不切换全局 Alias。较旧的 INDEX 任务即使晚完成，也不能覆盖已经发布的新 Revision。",
+          "sourceTextHash": "0ad80685cfa88c3b870c4322f9d3bc6a4d1bff6b2e5939dc5b0992b91176b08a"
+        }
+      ]
+    },
+    {
+      "key": "operations-sla-en",
+      "title": "Operations Response Handbook",
+      "language": "en",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "ops-p1-sla",
+          "headingPath": ["Incident Response", "Priority One"],
+          "startPage": 5,
+          "endPage": 5,
+          "text": "Policy OPS-271 requires the on-call engineer to acknowledge a priority-one incident within 15 minutes. The four-hour restoration objective is tracked separately from acknowledgement.",
+          "sourceTextHash": "d1d2171a24c247363ffc24529d8be922633a9a7edc826e954204b8f0425d61a2"
+        },
+        {
+          "key": "aurora-backup",
+          "headingPath": ["Continuity", "Backup Retention"],
+          "startPage": 6,
+          "endPage": 6,
+          "text": "Aurora Vault retains encrypted operational backups for 35 days. A restore drill is performed once per quarter, and drill results are attached to the continuity review.",
+          "sourceTextHash": "ee538be3506cc54c7db3745b61c3d11a3de09e456ecdfd93b3135bb77719fc3d"
+        }
+      ]
+    },
+    {
+      "key": "finance-policy-zh",
+      "title": "差旅与付款政策",
+      "language": "zh",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "finance-hotel-cap",
+          "headingPath": ["FIN-2026-07", "住宿标准"],
+          "startPage": 7,
+          "endPage": 7,
+          "text": "制度 FIN-2026-07 规定，普通员工国内出差的酒店报销上限为每晚 680 元人民币，超出部分需要由个人承担。",
+          "sourceTextHash": "f4c4b5c3b101a92879409602e057637e6db60203519c255fd70094c9e5fafaf8"
+        },
+        {
+          "key": "nebulapay-approval",
+          "headingPath": ["付款审批", "NebulaPay"],
+          "startPage": 8,
+          "endPage": 8,
+          "text": "通过 NebulaPay 发起的单笔付款超过 5000 元时，需要部门负责人审批；超过 20000 元时还需要财务负责人复核。",
+          "sourceTextHash": "9846afc451b510313672cf6c23e6d1dbce1f5f17ed773711d0b445d81d5a8d7a"
+        }
+      ]
+    },
+    {
+      "key": "data-residency-en",
+      "title": "Data Residency Standard",
+      "language": "en",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "atlas-singapore-region",
+          "headingPath": ["Atlas Harbor", "Singapore Tenants"],
+          "startPage": 9,
+          "endPage": 9,
+          "text": "Atlas Harbor stores primary content for Singapore tenants in the ap-southeast-1 region. Replicas used for normal service remain inside the same regional boundary.",
+          "sourceTextHash": "df4f4845a0f7aa26b84a9cb063131abd686aa38480d17ec92b744f2245d0dea6"
+        },
+        {
+          "key": "residency-deletion-window",
+          "headingPath": ["Deletion", "Backup Purge"],
+          "startPage": 10,
+          "endPage": 10,
+          "text": "After an approved tenant deletion request, online records become inaccessible immediately and backup copies are purged within 72 hours.",
+          "sourceTextHash": "1e0eb77c71cd36e6816837d095bcf193da326c35aa5f1820708a0eae8261660c"
+        }
+      ]
+    },
+    {
+      "key": "api-security-mixed",
+      "title": "API Security Notes / 接口安全说明",
+      "language": "mixed",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "rag-4032-stale-acl",
+          "headingPath": ["Error Codes", "RAG-4032"],
+          "startPage": 11,
+          "endPage": 11,
+          "text": "错误码 RAG-4032 表示请求携带的 ACL 版本已经过期。客户端应刷新当前授权上下文后重新发起请求，服务端不得使用旧权限快照继续返回正文。",
+          "sourceTextHash": "a45eaf3ba03ba6533872fe2d2d5d1cf3e37faa67cccdc9447337d5b7476894de"
+        },
+        {
+          "key": "service-token-hash",
+          "headingPath": ["Service Account", "Token Storage"],
+          "startPage": 12,
+          "endPage": 12,
+          "text": "自动化 API 使用有作用域、有效期且可撤销的 Service Account Token；数据库只保存 token hash，不保存或再次显示原始 token。",
+          "sourceTextHash": "42eeceb13ccc2cfb774a36a12ae168dbbcd4858fd6b246f89b40f68cca52faa1"
+        }
+      ]
+    },
+    {
+      "key": "hr-policy-zh",
+      "title": "员工假期与远程办公办法",
+      "language": "zh",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "hr-parental-leave",
+          "headingPath": ["HR-LV-09", "育儿假"],
+          "startPage": 13,
+          "endPage": 13,
+          "text": "政策 HR-LV-09 为符合条件的员工提供二十个工作日的带薪育儿假，假期应在子女出生后十二个月内使用。",
+          "sourceTextHash": "f3e85aee54200820a50b03824cce6d11b198b5c0e2306b9963014cacf70969a8"
+        },
+        {
+          "key": "lotus-remote-work",
+          "headingPath": ["远程办公", "Lotus Desk"],
+          "startPage": 14,
+          "endPage": 14,
+          "text": "Lotus Desk 计划允许员工每周最多远程办公三天，具体日期由直属经理与团队共同确认。",
+          "sourceTextHash": "19cf5b0911c56b82d8c99bd5ce02ff23f7966c637b6bc2780f5f811aad4e438b"
+        }
+      ]
+    },
+    {
+      "key": "release-governance-en",
+      "title": "Release Governance Rules",
+      "language": "en",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "rel-88-generation-retention",
+          "headingPath": ["REL-88", "Rollback Assets"],
+          "startPage": 15,
+          "endPage": 15,
+          "text": "Release rule REL-88 requires two validated index generations to remain available for at least 24 hours after an alias switch.",
+          "sourceTextHash": "f03564b6732b8f6457240f3742945dac7fc09f14bb03e255d562657aad9c1ae5"
+        },
+        {
+          "key": "canary-quality-gate",
+          "headingPath": ["Canary", "Quality Gate"],
+          "startPage": 16,
+          "endPage": 16,
+          "text": "A canary may become the default only after paired evaluation shows no authorization leaks and no regression beyond the declared quality and latency tolerances.",
+          "sourceTextHash": "4466bba10de2904bde0bc4c9c02efb7167ceffaa4a3668e0fac26f7208c1a812"
+        }
+      ]
+    },
+    {
+      "key": "vendor-risk-zh",
+      "title": "供应商风险管理办法",
+      "language": "zh",
+      "revisionKey": "r1",
+      "passages": [
+        {
+          "key": "sup-410-orion",
+          "headingPath": ["SUP-410", "高风险供应商"],
+          "startPage": 17,
+          "endPage": 17,
+          "text": "规则 SUP-410 将 Orion Freight 列为高风险物流供应商，新合同签署前必须完成安全与财务双重尽调。",
+          "sourceTextHash": "164c8afaccd570a288e2e6b98261c5e954675c1c3afe14122084a6875e118a1c"
+        },
+        {
+          "key": "blue-lantern-audit",
+          "headingPath": ["持续监督", "Blue Lantern"],
+          "startPage": 18,
+          "endPage": 18,
+          "text": "Blue Lantern 审计发现的问题必须在九十天内完成整改，逾期事项自动升级给采购负责人。",
+          "sourceTextHash": "4d6347c8b3fbdefd2b53229f981001a111cbd8eab2a3dc80b373ef88d7fe8453"
+        }
+      ]
+    }
+  ],
+  "hardNegatives": {
+    "copiesPerTemplate": 6,
+    "templates": [
+      {
+        "key": "acl-audit",
+        "heading": "Access Review Archive",
+        "textTemplate": "Access review note {n} records a quarterly owner attestation and an archived permission report without defining revocation timing."
+      },
+      {
+        "key": "session-capacity",
+        "heading": "Session Capacity",
+        "textTemplate": "Session capacity sample {n} describes concurrent browser counts and cache sizing, not authorization invalidation behavior."
+      },
+      {
+        "key": "retrieval-glossary",
+        "heading": "Retrieval Glossary",
+        "textTemplate": "Retrieval glossary entry {n} lists BM25, vector, parent, child, rerank, and evidence as vocabulary without specifying their execution order."
+      },
+      {
+        "key": "index-draft",
+        "heading": "Index Draft Notes",
+        "textTemplate": "Index planning draft {n} discusses aliases, generations, revisions, and rollback exercises but contains no approved publication rule."
+      },
+      {
+        "key": "operations-history",
+        "heading": "Operations History",
+        "textTemplate": "Operations history item {n} mentions incidents, response, backups, and restoration as retrospective topics without an active SLA."
+      },
+      {
+        "key": "finance-example",
+        "heading": "Finance Training Example",
+        "textTemplate": "Finance example {n} uses a fictional hotel and payment approval scenario for training and is not an expense policy."
+      },
+      {
+        "key": "regional-catalog",
+        "heading": "Regional Catalog",
+        "textTemplate": "Regional catalog row {n} names Singapore, Frankfurt, backups, replicas, and deletion as available report filters only."
+      },
+      {
+        "key": "api-errors",
+        "heading": "API Error Catalog",
+        "textTemplate": "API error catalog sample {n} explains generic authentication, token, ACL, retry, and permission terms without assigning a product error code."
+      },
+      {
+        "key": "hr-survey",
+        "heading": "Workplace Survey",
+        "textTemplate": "Workplace survey response {n} discusses leave, remote work, managers, and office days as employee opinions rather than policy."
+      },
+      {
+        "key": "vendor-directory",
+        "heading": "Vendor Directory",
+        "textTemplate": "Vendor directory entry {n} contains logistics, audit, contract, risk, and procurement keywords without an approved vendor decision."
+      }
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "version": "query-intent-golden-v1",
+  "language": "mixed",
+  "cases": [
+    {
+      "caseKey": "zh-exact-fact",
+      "language": "zh",
+      "input": {"query": "Jonathan Smith 在 2021 年带领 Oregon State 取得了多少场胜利？"},
+      "expected": {"expectedMode": "HYBRID"}
+    },
+    {
+      "caseKey": "en-exact-fact",
+      "language": "en",
+      "input": {"query": "How many victories did Oregon State have under Jonathan Smith in 2021?"},
+      "expected": {"expectedMode": "HYBRID"}
+    },
+    {
+      "caseKey": "zh-relation",
+      "language": "zh",
+      "input": {"query": "Jonathan Smith 与 Michigan State、Oregon State 分别有什么关系？"},
+      "expected": {"expectedMode": "LOCAL_GRAPH"}
+    },
+    {
+      "caseKey": "en-relation",
+      "language": "en",
+      "input": {"query": "Trace the relationship between Jonathan Smith, Oregon State, and Michigan State."},
+      "expected": {"expectedMode": "LOCAL_GRAPH"}
+    },
+    {
+      "caseKey": "zh-global",
+      "language": "zh",
+      "input": {"query": "综合公共知识库，归纳这些文档反映的主要主题和共同趋势。"},
+      "expected": {"expectedMode": "GLOBAL_GRAPH"}
+    },
+    {
+      "caseKey": "en-global",
+      "language": "en",
+      "input": {"query": "Across the public corpus, summarize the major themes and recurring trends."},
+      "expected": {"expectedMode": "GLOBAL_GRAPH"}
+    },
+    {
+      "caseKey": "mixed-identifier",
+      "language": "mixed",
+      "input": {"query": "RAG-4032 error 代表什么？"},
+      "expected": {"expectedMode": "HYBRID"}
+    },
+    {
+      "caseKey": "zh-multihop",
+      "language": "zh",
+      "input": {"query": "找出 Jonathan Smith 的执教经历如何连接到 Michigan State 的换帅决定。"},
+      "expected": {"expectedMode": "LOCAL_GRAPH"}
+    },
+    {
+      "caseKey": "en-corpus-synthesis",
+      "language": "en",
+      "input": {"query": "What broad conclusions can be drawn by synthesizing all public community reports?"},
+      "expected": {"expectedMode": "GLOBAL_GRAPH"}
+    }
+  ]
+}

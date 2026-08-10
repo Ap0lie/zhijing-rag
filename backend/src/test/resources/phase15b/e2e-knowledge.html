@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 15B HTML 浏览器验收</title>
+  <style>body { background: red; }</style>
+  <script>window.__phase15bShouldNeverRun = true;</script>
+</head>
+<body onload="window.__phase15bShouldNeverRun = true">
+  <main>
+    <h1>Phase 15B HTML 浏览器验收</h1>
+    <section id="evidence">
+      <h2>安全结构</h2>
+      <p>HTML-SENTINEL-1503 的清洗结果是 SAFE，远程资源数量为 0。</p>
+      <p>引用应定位到 DOM Block，不直接渲染原始 HTML。</p>
+      <img src="https://example.invalid/never-fetch.png" alt="remote resource must not load">
+      <a href="javascript:alert('never')">unsafe link</a>
+    </section>
+  </main>
+</body>
+</html>

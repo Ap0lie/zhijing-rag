@@ -1,0 +1,47 @@
+{
+  "datasetVersion": "parser-golden-v1",
+  "language": "zh",
+  "cases": [
+    {
+      "id": "electronic-pdfbox",
+      "question": "简单电子 PDF 应由 PDFBox 解析并保留页码与 Child-relative SourceSpan。",
+      "input": {"sampleKind": "ELECTRONIC", "requiredParser": "PDFBOX"},
+      "expected": {"terminalStatus": "SUCCEEDED", "sourceSpanRequired": true}
+    },
+    {
+      "id": "scanned-mineru",
+      "question": "扫描 PDF 应路由到 MinerU，并记录 OCR 路由原因。",
+      "input": {"sampleKind": "SCANNED", "requiredParser": "MINERU"},
+      "expected": {"terminalStatus": "SUCCEEDED", "ocrRequired": true}
+    },
+    {
+      "id": "table-structure",
+      "question": "表格 PDF 应保存表格、单元格、坐标与原文 Hash。",
+      "input": {"sampleKind": "TABLE", "requiredParser": "MINERU"},
+      "expected": {
+        "terminalStatus": "SUCCEEDED",
+        "tableRequired": true,
+        "coordinatesRequired": true
+      }
+    },
+    {
+      "id": "encrypted-quarantine",
+      "question": "加密 PDF 应进入隔离状态且不得发布 Revision。",
+      "input": {"sampleKind": "ENCRYPTED", "requiredParser": "AUTO"},
+      "expected": {
+        "terminalStatus": "QUARANTINED",
+        "currentRevisionMustRemain": true
+      }
+    },
+    {
+      "id": "interrupted-recovery",
+      "question": "解析任务中断后应由租约安全接管且不产生重复结构资产。",
+      "input": {"sampleKind": "INTERRUPTED", "requiredParser": "AUTO"},
+      "expected": {
+        "terminalStatus": "SUCCEEDED",
+        "leaseRecoveryRequired": true,
+        "duplicateAssetsAllowed": false
+      }
+    }
+  ]
+}

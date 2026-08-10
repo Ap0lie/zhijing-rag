@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "retrieval-golden-baseline-summary-v1",
+  "datasetVersion": "retrieval-golden-v2",
+  "corpusVersion": "phase6-retrieval-corpus-v2",
+  "datasetSha256": "4a39a5ec081e7af095c883ef8cdbcf47b776876752948f8f8d8e74cb12b44106",
+  "corpusSha256": "8acafa52cb2b48008315ecd1b01a0ef6a4b3cf41a4c2bc9f8046dc93f617b854",
+  "status": "MEASURED",
+  "generatedAt": "2026-07-23T06:42:27.472497223Z",
+  "reportAvailable": true,
+  "caseCount": 48,
+  "answerableCaseCount": 42,
+  "noAnswerCaseCount": 6,
+  "languages": {
+    "zh": 22,
+    "en": 16,
+    "mixed": 10
+  },
+  "slices": {
+    "semantic-paraphrase": {
+      "caseCount": 19,
+      "candidateHitAt50": 0.7368421052631579
+    },
+    "cross-language": {
+      "caseCount": 11,
+      "candidateHitAt50": 0.5454545454545454
+    },
+    "exact-identifier": {
+      "caseCount": 6,
+      "candidateHitAt50": 1.0
+    },
+    "proper-noun": {
+      "caseCount": 6,
+      "candidateHitAt50": 1.0
+    },
+    "multi-evidence": {
+      "caseCount": 6,
+      "candidateHitAt50": 1.0
+    },
+    "no-answer": {
+      "caseCount": 6
+    },
+    "hard-negative": {
+      "caseCount": 6
+    }
+  }
+}

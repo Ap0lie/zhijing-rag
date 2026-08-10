@@ -1,0 +1,87 @@
+{
+  "version": "phase5-golden-v1",
+  "description": "Phase 5 bilingual BM25 Candidate Hit@50 set with stable document, heading, and page anchors.",
+  "queries": [
+    {
+      "id": "zh-platform-context",
+      "language": "zh",
+      "query": "平台上下文检索",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Retrieval Context",
+      "expectedStartPage": 1,
+      "expectedEndPage": 1
+    },
+    {
+      "id": "zh-authorized-evidence",
+      "language": "zh",
+      "query": "授权证据溯源",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Retrieval Context",
+      "expectedStartPage": 1,
+      "expectedEndPage": 1
+    },
+    {
+      "id": "zh-evaluation",
+      "language": "zh",
+      "query": "检索评测覆盖",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Evaluation",
+      "expectedStartPage": 2,
+      "expectedEndPage": 2
+    },
+    {
+      "id": "en-retrieval-context",
+      "language": "en",
+      "query": "retrieval context",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Retrieval Context",
+      "expectedStartPage": 1,
+      "expectedEndPage": 1
+    },
+    {
+      "id": "en-traceable-evidence",
+      "language": "en",
+      "query": "traceable evidence",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Retrieval Context",
+      "expectedStartPage": 1,
+      "expectedEndPage": 1
+    },
+    {
+      "id": "en-mixed-coverage",
+      "language": "en",
+      "query": "mixed query coverage",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Evaluation",
+      "expectedStartPage": 2,
+      "expectedEndPage": 2
+    },
+    {
+      "id": "mixed-rag-context",
+      "language": "mixed",
+      "query": "RAG 上下文 context",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Retrieval Context",
+      "expectedStartPage": 1,
+      "expectedEndPage": 1
+    },
+    {
+      "id": "mixed-authorized-evidence",
+      "language": "mixed",
+      "query": "授权 evidence traceable",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Retrieval Context",
+      "expectedStartPage": 1,
+      "expectedEndPage": 1
+    },
+    {
+      "id": "mixed-evaluation",
+      "language": "mixed",
+      "query": "中文 English mixed 评测",
+      "expectedDocumentKey": "structured-two-page",
+      "expectedHeading": "Evaluation",
+      "expectedStartPage": 2,
+      "expectedEndPage": 2
+    }
+  ]
+}

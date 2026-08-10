@@ -1,0 +1,53 @@
+%%{init: {"theme":"base","securityLevel":"strict","fontFamily":"Segoe UI, Arial, sans-serif","themeVariables":{"background":"#ffffff","primaryTextColor":"#10213d","lineColor":"#8391a5","fontSize":"16px","clusterBkg":"#fbfcfe","clusterBorder":"#dbe4ee"},"flowchart":{"curve":"linear","htmlLabels":true,"nodeSpacing":30,"rankSpacing":40,"diagramPadding":18}}}%%
+block-beta
+    columns 10
+
+    T_ENTRY["1 · Request & routing"]:2
+    ROUTE["<b>Step 1 · Route once per request</b><br/>User question → Explicit mode / AUTO → Choose path 2A or 2B · Up to 3 × 2 recall · Token / timeout budgets"]:8
+    QUESTION["<b>1-1 · User question</b><br/>Safe history window only"]:4
+    MODE["<b>1-2 · Explicit mode / AUTO</b><br/>One decision · Select 2A or 2B"]:6
+
+    T_STANDARD["2A · HYBRID / LOCAL<br/>Alternative branch"]:2
+    STD_BUS["<b>Path 2A · Fact retrieval and local relations</b><br/>Plan query → Recall candidates → Authorize → Rerank once → Bound evidence"]:8
+    REWRITE["<b>2A-1 · Query planning</b><br/>Rewrite · Subqueries<br/>Fixed recall slots"]:2
+    RECALL["<b>2A-2 · Candidate recall</b><br/>BM25 · Vector<br/>Optional 1–2 hop Local Graph"]:2
+    AUTH["<b>2A-3 · Authorization</b><br/>ACL · Current revision<br/>SourceLocator"]:2
+    RERANK["<b>2A-4 · One rerank</b><br/>Stratified candidate pool<br/>Path-evidence preservation"]:2
+    EVIDENCE["<b>2A-5 · Bounded evidence</b><br/>Profile default: 8 items<br/>Budgeted parent context"]:2
+
+    T_GLOBAL["2B · GLOBAL_GRAPH<br/>Alternative branch"]:2
+    GLOBAL_BUS["<b>Path 2B · Cross-document themes and global analysis</b><br/>Retrieve reports → Trace sources → Authorize user → Fuse evidence → Select depth"]:8
+    REPORT["<b>2B-1 · Report retrieval</b><br/>ALL_USERS community reports<br/>Up to 8 reports"]:2
+    RESOLVE["<b>2B-2 · Source trace</b><br/>Live Child · Revision<br/>SourceLocator validation"]:2
+    USER_AUTH["<b>2B-3 · User authorization</b><br/>ACL · Current revision<br/>No hidden-content return"]:2
+    FUSE["<b>2B-4 · Evidence fusion</b><br/>Public reports +<br/>this user's HYBRID evidence"]:2
+    DEPTH["<b>2B-5 · Analysis depth</b><br/>Standard global context<br/>or explicit 8 Map + 1 Reduce"]:2
+
+    T_ANSWER["3 · Answer safety"]:2
+    ANSWER_BUS["<b>Step 3 · Paths 2A and 2B converge here</b><br/>Answer Profile → Structured generation → Citation checks → Grounded answer or explainable refusal"]:8
+    PROFILE["<b>3-1 · Answer Profile</b><br/>Model · Prompt · Budgets<br/>Immutable version"]:2
+    GENERATE["<b>3-2 · Structured generation</b><br/>One answer call<br/>Bounded output"]:2
+    CITE["<b>3-3 · Citation checks</b><br/>Allowlist · ACL<br/>Revision · SourceSpan"]:2
+    OUTPUT["<b>3-4 · Result</b><br/>Grounded answer / explainable refusal<br/>Citations resolve to Child evidence"]:4
+    SAFE["<b>Exception path (failures only)</b> · Global → Local → Hybrid → BM25 · Authorization unavailable: 503"]:10
+
+    QUESTION --- MODE
+    REWRITE --- RECALL --- AUTH --- RERANK --- EVIDENCE
+    REPORT --- RESOLVE --- USER_AUTH --- FUSE --- DEPTH
+    PROFILE --- GENERATE --- CITE --- OUTPUT
+
+    classDef section fill:transparent,color:#10213d,stroke:transparent,font-size:18px,font-weight:700
+    classDef entry fill:#ffffff,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef primary fill:#edf4fc,color:#10213d,stroke:#5f7fa6,stroke-width:1.8px
+    classDef bus fill:#eef3f8,color:#17304f,stroke:#9eafc4,stroke-width:1.4px
+    classDef neutral fill:#f8fafc,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef trust fill:#edf7f2,color:#173d2d,stroke:#4b8f70,stroke-width:1.8px
+    classDef accent fill:#fff5e9,color:#722f0e,stroke:#ff7a16,stroke-width:2px
+
+    class T_ENTRY,T_STANDARD,T_GLOBAL,T_ANSWER section
+    class QUESTION entry
+    class MODE primary
+    class ROUTE,STD_BUS,GLOBAL_BUS,ANSWER_BUS bus
+    class REWRITE,RECALL,RERANK,EVIDENCE,REPORT,RESOLVE,USER_AUTH,FUSE,DEPTH,PROFILE,GENERATE neutral
+    class AUTH,CITE,OUTPUT trust
+    class SAFE accent

@@ -1,0 +1,59 @@
+{
+  "version": "release-component-golden-v1",
+  "language": "en",
+  "cases": [
+    {
+      "caseKey": "multihop-rag-005e26b475d1953cc1a8",
+      "input": {"query": "Does 'The Verge' article on Black Friday deals mention the same discount for Hasbro's Jenga: Super Mario Edition as the discount 'The Verge' reports for the Wi-Fi Kasa smart outdoor plug on Amazon?"},
+      "expected": {"answer": "no", "shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:a6f1d4267eb2c248917e2ded7038039b"},
+        {"evidenceKey": "evidence:8023d539e751850a96c50953ea29300e"}
+      ]
+    },
+    {
+      "caseKey": "multihop-rag-0073ab564e55459074f6",
+      "input": {"query": "Does the article from CBSSports.com credit Jonathan Smith with a specific number of victories for Oregon State in the 2021 season, and does the article from The New York Times describe the Jets' offense's performance in terms of points scored and total yards over a set number of possessions?"},
+      "expected": {"answer": "Yes", "shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:fb6eed05a933438ffb9f71e91e83ee31"},
+        {"evidenceKey": "evidence:dcd0b7f0bdf9096e3e962d58d08a1945"}
+      ]
+    },
+    {
+      "caseKey": "multihop-rag-0085f76defbeba448404",
+      "input": {"query": "Does the Engadget article claim that CyberGhost's cybersecurity measures include an independent security audit, a vulnerability disclosure program, and transparency reporting, while the TechCrunch article suggests that Keep Labs employs automated tools for code vulnerability assessments, indicating different approaches to product security?"},
+      "expected": {"answer": "Yes", "shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:a83246476eedf95d78fd5304a2220db2"},
+        {"evidenceKey": "evidence:f212329637e755247df15a836910746b"}
+      ]
+    },
+    {
+      "caseKey": "multihop-rag-00bcb273add86dd41c54",
+      "input": {"query": "Does the Wired article suggest that Sony headphones offer the best value in their class during the Cyber Monday sale, while the TalkSport article discusses the expected sale price of Manchester United by the Glazers, comparing it to the investment made by Todd Boehly for Chelsea?"},
+      "expected": {"answer": "Yes", "shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:5ffa3c917c43000b027f85a13a3a8576"},
+        {"evidenceKey": "evidence:6c2d3b776d8f360b4c8da72e759faee0"}
+      ]
+    },
+    {
+      "caseKey": "multihop-rag-012f1f51ac88f0750ceb",
+      "input": {"query": "Does 'The Verge' article on Prime Big Deal Days indicate that there are no gaming deals for the same range of gaming platforms as 'Polygon' staff play games on, including PlayStation 5, PS4, Xbox Series X / S, Nintendo Switch, and PC?"},
+      "expected": {"answer": "no", "shouldRefuse": false},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:594ecc683244999002aaefdc3da414cd"},
+        {"evidenceKey": "evidence:7a549848c6902404b9eefa0a28876848"}
+      ]
+    },
+    {
+      "caseKey": "refusal-project-zephyr-9",
+      "input": {"query": "According to the cited public article, what is the exact launch date of Project Zephyr-9?"},
+      "expected": {"shouldRefuse": true},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:a6f1d4267eb2c248917e2ded7038039b"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "headless": "shell",
+  "timeout": 120000,
+  "args": [
+    "--in-process-gpu",
+    "--disable-gpu"
+  ]
+}

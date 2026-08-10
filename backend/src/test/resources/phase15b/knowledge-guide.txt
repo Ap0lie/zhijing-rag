@@ -1,0 +1,11 @@
+第一章 Context-aware RAG
+
+平台中文优先，同时兼容 English retrieval。
+Child Chunk 用于精确召回，Parent Chunk 用于补充回答上下文。
+所有检索结果在返回前都需要复核当前用户的 ACL 和 Revision。
+
+第二章 检索策略
+
+BM25 负责关键词、编号和专有名词召回。
+Semantic Search 负责语义相关内容召回。
+Reranker 对统一候选集执行一次重排序。

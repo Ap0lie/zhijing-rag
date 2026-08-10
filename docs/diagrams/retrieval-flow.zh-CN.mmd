@@ -1,0 +1,53 @@
+%%{init: {"theme":"base","securityLevel":"strict","fontFamily":"Microsoft YaHei, Segoe UI, Arial, sans-serif","themeVariables":{"background":"#ffffff","primaryTextColor":"#10213d","lineColor":"#8391a5","fontSize":"16px","clusterBkg":"#fbfcfe","clusterBorder":"#dbe4ee"},"flowchart":{"curve":"linear","htmlLabels":true,"nodeSpacing":30,"rankSpacing":40,"diagramPadding":18}}}%%
+block-beta
+    columns 10
+
+    T_ENTRY["1 · 请求与路由"]:2
+    ROUTE["<b>步骤 1 · 每个请求只路由一次</b><br/>用户问题 → 显式模式 / AUTO → 仅选择路径 2A 或 2B · 最多 3 × 2 召回 · Token / 超时预算"]:8
+    QUESTION["<b>1-1 · 用户问题</b><br/>只读取安全历史窗口"]:4
+    MODE["<b>1-2 · 显式模式 / AUTO</b><br/>一次决策 · 选择 2A 或 2B"]:6
+
+    T_STANDARD["2A · HYBRID / LOCAL<br/>二选一分支"]:2
+    STD_BUS["<b>路径 2A · 事实检索与局部关系</b><br/>查询规划 → 候选召回 → 授权复核 → 单次 Rerank → 有界 Evidence"]:8
+    REWRITE["<b>2A-1 · 查询规划</b><br/>Rewrite · 子查询<br/>固定召回槽位"]:2
+    RECALL["<b>2A-2 · 候选召回</b><br/>BM25 · Vector<br/>可选 1–2 跳 Local Graph"]:2
+    AUTH["<b>2A-3 · 授权复核</b><br/>ACL · 当前 Revision<br/>SourceLocator"]:2
+    RERANK["<b>2A-4 · 单次 Rerank</b><br/>分层候选池<br/>路径 Evidence 保留"]:2
+    EVIDENCE["<b>2A-5 · 有界 Evidence</b><br/>Profile 默认 8 条<br/>受预算 Parent 上下文"]:2
+
+    T_GLOBAL["2B · GLOBAL_GRAPH<br/>二选一分支"]:2
+    GLOBAL_BUS["<b>路径 2B · 跨文档主题与全局分析</b><br/>报告检索 → 原文回溯 → 当前用户授权 → Evidence 融合 → 分析深度"]:8
+    REPORT["<b>2B-1 · 报告检索</b><br/>ALL_USERS Community Report<br/>最多 8 份"]:2
+    RESOLVE["<b>2B-2 · 原文回溯</b><br/>Child · Revision<br/>SourceLocator 实时复核"]:2
+    USER_AUTH["<b>2B-3 · 用户授权</b><br/>ACL · 当前 Revision<br/>隐藏内容零返回"]:2
+    FUSE["<b>2B-4 · Evidence 融合</b><br/>公共 Report +<br/>本次用户 HYBRID Evidence"]:2
+    DEPTH["<b>2B-5 · 分析深度</b><br/>标准 Global Context<br/>或显式 8 Map + 1 Reduce"]:2
+
+    T_ANSWER["3 · 回答与安全"]:2
+    ANSWER_BUS["<b>步骤 3 · 路径 2A / 2B 在此汇合</b><br/>Answer Profile → 结构化生成 → Citation 复核 → 可信回答或可解释拒答"]:8
+    PROFILE["<b>3-1 · Answer Profile</b><br/>模型 · Prompt · 预算<br/>不可变版本"]:2
+    GENERATE["<b>3-2 · 结构化生成</b><br/>单次回答调用<br/>受控输出"]:2
+    CITE["<b>3-3 · Citation 复核</b><br/>白名单 · 权限<br/>Revision · SourceSpan"]:2
+    OUTPUT["<b>3-4 · 输出结果</b><br/>可信回答 / 可解释拒答<br/>引用回到 Child Evidence"]:4
+    SAFE["<b>异常旁路（仅在失败时）</b> · Global → Local → Hybrid → BM25 · 权限复核不可用返回 503"]:10
+
+    QUESTION --- MODE
+    REWRITE --- RECALL --- AUTH --- RERANK --- EVIDENCE
+    REPORT --- RESOLVE --- USER_AUTH --- FUSE --- DEPTH
+    PROFILE --- GENERATE --- CITE --- OUTPUT
+
+    classDef section fill:transparent,color:#10213d,stroke:transparent,font-size:18px,font-weight:700
+    classDef entry fill:#ffffff,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef primary fill:#edf4fc,color:#10213d,stroke:#5f7fa6,stroke-width:1.8px
+    classDef bus fill:#eef3f8,color:#17304f,stroke:#9eafc4,stroke-width:1.4px
+    classDef neutral fill:#f8fafc,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef trust fill:#edf7f2,color:#173d2d,stroke:#4b8f70,stroke-width:1.8px
+    classDef accent fill:#fff5e9,color:#722f0e,stroke:#ff7a16,stroke-width:2px
+
+    class T_ENTRY,T_STANDARD,T_GLOBAL,T_ANSWER section
+    class QUESTION entry
+    class MODE primary
+    class ROUTE,STD_BUS,GLOBAL_BUS,ANSWER_BUS bus
+    class REWRITE,RECALL,RERANK,EVIDENCE,REPORT,RESOLVE,USER_AUTH,FUSE,DEPTH,PROFILE,GENERATE neutral
+    class AUTH,CITE,OUTPUT trust
+    class SAFE accent

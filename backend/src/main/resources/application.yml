@@ -1,0 +1,180 @@
+spring:
+  application:
+    name: rag-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/rag}
+    username: ${DB_USERNAME:rag}
+    password: ${DB_PASSWORD:rag}
+  flyway:
+    enabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  servlet:
+    multipart:
+      max-file-size: ${DOCUMENT_MAX_SIZE:50MB}
+      max-request-size: ${DOCUMENT_MAX_SIZE:50MB}
+
+server:
+  port: 8080
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:false}
+
+rag:
+  bootstrap-admin:
+    username: ${RAG_ADMIN_USERNAME:}
+    password: ${RAG_ADMIN_PASSWORD:}
+  storage:
+    initialize: ${STORAGE_INITIALIZE:true}
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:ragminio}
+    secret-key: ${MINIO_SECRET_KEY:ragminio123}
+    bucket: ${MINIO_BUCKET:rag-documents}
+    max-file-size: ${DOCUMENT_MAX_SIZE:50MB}
+    staging-retention: ${STORAGE_STAGING_RETENTION:PT15M}
+    orphan-retention: ${STORAGE_ORPHAN_RETENTION:PT5M}
+    cleanup-delay-ms: ${STORAGE_CLEANUP_DELAY_MS:10000}
+  pipeline:
+    worker-enabled: ${PIPELINE_WORKER_ENABLED:false}
+    worker-id: ${PIPELINE_WORKER_ID:parser-worker}
+    worker-stage: ${PIPELINE_WORKER_STAGE:PARSE}
+    poll-interval: ${PIPELINE_POLL_INTERVAL:PT1S}
+    lease-duration: ${PIPELINE_LEASE_DURATION:PT30S}
+    heartbeat-interval: ${PIPELINE_HEARTBEAT_INTERVAL:PT10S}
+    task-timeout: ${PIPELINE_TASK_TIMEOUT:PT120S}
+    max-attempts: ${PIPELINE_MAX_ATTEMPTS:3}
+    pipeline-version: phase4-v1
+    parser-version: pdfbox-3.0.8
+    chunker-version: parent-child-v1
+    chunking-profile:
+      version: phase4-v1
+      parent-max-tokens: 1200
+      child-max-tokens: 300
+      overlap-tokens: 40
+      token-counter-version: unicode-codepoint-v1
+  mineru:
+    enabled: ${MINERU_ENABLED:false}
+    endpoint: ${MINERU_ENDPOINT:http://mineru:8000}
+    version: ${MINERU_VERSION:3.4.4}
+    model-revision: ${MINERU_MODEL_REVISION:bff20d4ae2bf202df9f45284b4d43681555a97ed}
+    model-manifest-checksum: ${MINERU_MODEL_MANIFEST_CHECKSUM:16981dc38075623ddec4fdcf7f055c89688f44a92076f534919f465be46c82e7}
+    timeout: ${MINERU_TIMEOUT:PT14M}
+    max-pages: ${MINERU_MAX_PAGES:200}
+    local-endpoint: ${MINERU_LOCAL_ENDPOINT:true}
+    gpu-active-profile: ${GPU_ACTIVE_PROFILE:none}
+  chat:
+    enabled: ${CHAT_ENABLED:true}
+    sse-timeout: ${CHAT_SSE_TIMEOUT:PT30S}
+    llm:
+      enabled: ${LLM_ENABLED:false}
+      base-url: ${LLM_BASE_URL:http://host.docker.internal:11434/v1}
+      model: ${LLM_MODEL:}
+      model-revision: ${LLM_REVISION:runtime}
+      api-key: ${LLM_API_KEY:}
+      timeout: ${LLM_TIMEOUT:PT15S}
+      max-output-tokens: ${LLM_MAX_OUTPUT_TOKENS:1024}
+      context-window-tokens: ${LLM_CONTEXT_WINDOW_TOKENS:8192}
+      local-endpoint: ${LLM_LOCAL_ENDPOINT:false}
+      remote-evidence-allowed: ${LLM_REMOTE_EVIDENCE_ALLOWED:false}
+      remote-memory-allowed: ${LLM_REMOTE_MEMORY_ALLOWED:false}
+  memory:
+    suggestion:
+      worker-enabled: ${MEMORY_SUGGESTION_WORKER_ENABLED:false}
+      worker-id: ${MEMORY_SUGGESTION_WORKER_ID:memory-suggestion-worker}
+      poll-interval: ${MEMORY_SUGGESTION_POLL_INTERVAL:PT1S}
+      lease-duration: ${MEMORY_SUGGESTION_LEASE_DURATION:PT45S}
+      max-attempts: ${MEMORY_SUGGESTION_MAX_ATTEMPTS:3}
+      max-suggestions: ${MEMORY_SUGGESTION_MAX_SUGGESTIONS:3}
+      extractor-version: phase14c-explicit-user-memory-v1
+      prompt-version: phase14c-explicit-user-memory-prompt-v1
+  graph:
+    enabled: ${GRAPH_ENABLED:true}
+    worker-enabled: ${GRAPH_WORKER_ENABLED:false}
+    global-worker-enabled: ${GRAPH_GLOBAL_WORKER_ENABLED:false}
+    worker-id: ${GRAPH_WORKER_ID:graph-worker}
+    poll-interval: ${GRAPH_POLL_INTERVAL:PT1S}
+    lease-duration: ${GRAPH_LEASE_DURATION:PT5M}
+    heartbeat-interval: ${GRAPH_HEARTBEAT_INTERVAL:PT30S}
+    retention: ${GRAPH_RETENTION:PT24H}
+    extraction:
+      enabled: ${GRAPH_EXTRACTION_ENABLED:false}
+      base-url: ${GRAPH_EXTRACTION_BASE_URL:http://host.docker.internal:11434/v1}
+      model: ${GRAPH_EXTRACTION_MODEL:}
+      revision: ${GRAPH_EXTRACTION_REVISION:}
+      api-key: ${GRAPH_EXTRACTION_API_KEY:}
+      timeout: ${GRAPH_EXTRACTION_TIMEOUT:PT45S}
+      max-output-tokens: ${GRAPH_EXTRACTION_MAX_OUTPUT_TOKENS:2048}
+      local-endpoint: ${GRAPH_EXTRACTION_LOCAL_ENDPOINT:false}
+      remote-evidence-allowed: ${GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED:false}
+    community:
+      base-url: ${GRAPH_COMMUNITY_BASE_URL:http://worker:8000}
+      timeout: ${GRAPH_COMMUNITY_TIMEOUT:PT30S}
+  evaluation:
+    catalog-import-enabled: ${EVALUATION_CATALOG_IMPORT_ENABLED:true}
+    worker-enabled: ${EVALUATION_WORKER_ENABLED:false}
+    worker-id: ${EVALUATION_WORKER_ID:evaluation-worker}
+    poll-interval: ${EVALUATION_POLL_INTERVAL:PT1S}
+    lease-duration: ${EVALUATION_LEASE_DURATION:PT30S}
+    heartbeat-interval: ${EVALUATION_HEARTBEAT_INTERVAL:PT10S}
+    max-attempts: ${EVALUATION_MAX_ATTEMPTS:3}
+    observability-enabled: ${EVALUATION_OBSERVABILITY_ENABLED:true}
+    drills-enabled: ${EVALUATION_DRILLS_ENABLED:false}
+    real-enabled: ${EVALUATION_REAL_ENABLED:false}
+    real-drills-enabled: ${EVALUATION_REAL_DRILLS_ENABLED:false}
+    retention: ${EVALUATION_RETENTION:P14D}
+    drill-step-duration: ${EVALUATION_DRILL_STEP_DURATION:PT2S}
+  search:
+    enabled: ${SEARCH_ENABLED:false}
+    endpoint: ${OPENSEARCH_URL:http://localhost:9200}
+    index-alias: rag-child-chunks
+    index-prefix: rag-child-chunks
+    bulk-size: 500
+    embedding-batch-size: ${SEARCH_EMBEDDING_BATCH_SIZE:32}
+    embedding-index-concurrency: ${SEARCH_EMBEDDING_INDEX_CONCURRENCY:2}
+    embedding-query-cache-max-entries: ${SEARCH_EMBEDDING_QUERY_CACHE_MAX_ENTRIES:2048}
+    embedding-query-cache-ttl: ${SEARCH_EMBEDDING_QUERY_CACHE_TTL:PT10M}
+    embedding-artifact-max-bytes: ${SEARCH_EMBEDDING_ARTIFACT_MAX_BYTES:2147483648}
+    embedding-artifact-retention: ${SEARCH_EMBEDDING_ARTIFACT_RETENTION:P30D}
+    embedding-artifact-cleanup-delay: ${SEARCH_EMBEDDING_ARTIFACT_CLEANUP_DELAY:PT30S}
+    embedding-artifact-touch-interval: ${SEARCH_EMBEDDING_ARTIFACT_TOUCH_INTERVAL:PT1H}
+    request-timeout: ${SEARCH_REQUEST_TIMEOUT:PT2.5S}
+    model-failure-threshold: ${SEARCH_MODEL_FAILURE_THRESHOLD:3}
+    model-circuit-break-duration: ${SEARCH_MODEL_CIRCUIT_BREAK_DURATION:PT30S}
+    projection-delay-ms: ${SEARCH_PROJECTION_DELAY_MS:10000}
+    generation-worker-enabled: ${SEARCH_GENERATION_WORKER_ENABLED:false}
+    generation-worker-id: ${SEARCH_GENERATION_WORKER_ID:generation-worker}
+    generation-poll-delay-ms: ${SEARCH_GENERATION_POLL_DELAY_MS:1000}
+    generation-lease-duration: ${SEARCH_GENERATION_LEASE_DURATION:PT2M}
+    generation-retention: ${SEARCH_GENERATION_RETENTION:PT24H}
+  models:
+    embedding:
+      enabled: ${EMBEDDING_ENABLED:false}
+      base-url: ${EMBEDDING_BASE_URL:http://embedding-model:8000}
+      model: ${EMBEDDING_MODEL:Qwen/Qwen3-Embedding-0.6B}
+      revision: ${EMBEDDING_REVISION:97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3}
+      dimensions: ${EMBEDDING_DIMENSION:1024}
+      timeout: ${EMBEDDING_TIMEOUT:PT2S}
+    rerank:
+      enabled: ${RERANK_ENABLED:false}
+      base-url: ${RERANK_BASE_URL:http://reranker-model:8000}
+      model: ${RERANK_MODEL:Qwen/Qwen3-Reranker-0.6B}
+      revision: ${RERANK_REVISION:e61197ed45024b0ed8a2d74b80b4d909f1255473}
+      timeout: ${RERANK_TIMEOUT:PT2S}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

@@ -1,0 +1,81 @@
+{
+  "datasetId": "phase4-pdfbox-parser",
+  "datasetVersion": "v1",
+  "generatorVersion": "pdfbox-fixtures-v1",
+  "samples": [
+    {
+      "id": "structured-two-page",
+      "language": "en",
+      "generator": "TEXT",
+      "expectedOutcome": "PARSED",
+      "pages": [
+        [
+          "1 Platform Overview",
+          "The platform converts enterprise documents into traceable evidence for grounded answers.",
+          "Every extracted passage keeps its document revision and original page location."
+        ],
+        [
+          "2 Retrieval Context",
+          "Small child chunks support retrieval while bounded parent chunks preserve useful context.",
+          "Stable identifiers make repeated processing deterministic and safe to retry."
+        ]
+      ]
+    },
+    {
+      "id": "mixed-cross-page",
+      "language": "mixed-technical",
+      "generator": "TEXT",
+      "expectedOutcome": "PARSED",
+      "requireCrossPageChunk": true,
+      "pages": [
+        [
+          "API lifecycle and Revision R1 remain traceable across a page boundary."
+        ],
+        [
+          "Parent context keeps BM25, vector, ACL, Chunk and citation terms together."
+        ]
+      ]
+    },
+    {
+      "id": "long-section",
+      "language": "en",
+      "generator": "LONG_SECTION",
+      "expectedOutcome": "PARSED",
+      "requireMultipleParents": true
+    },
+    {
+      "id": "scanned-image-only",
+      "language": "control",
+      "generator": "IMAGE_ONLY",
+      "expectedOutcome": "QUARANTINED",
+      "expectedReason": "SCANNED_PDF"
+    },
+    {
+      "id": "encrypted",
+      "language": "control",
+      "generator": "ENCRYPTED",
+      "expectedOutcome": "QUARANTINED",
+      "expectedReason": "ENCRYPTED_PDF"
+    },
+    {
+      "id": "gibberish",
+      "language": "control",
+      "generator": "GIBBERISH",
+      "expectedOutcome": "QUARANTINED",
+      "expectedReason": "GIBBERISH_TEXT"
+    },
+    {
+      "id": "blank",
+      "language": "control",
+      "generator": "BLANK",
+      "expectedOutcome": "QUARANTINED",
+      "expectedReason": "LOW_QUALITY_TEXT"
+    },
+    {
+      "id": "lease-smoke-400-pages",
+      "language": "en",
+      "generator": "SMOKE_400",
+      "expectedOutcome": "GENERATED_ONLY"
+    }
+  ]
+}

@@ -1,0 +1,621 @@
+name: rag-platform
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - default
+      - parser-internal
+      - indexer-internal
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ragminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ragminio123}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - default
+      - parser-internal
+
+  opensearch:
+    image: opensearchproject/opensearch:3.7.0@sha256:44ba7ea58a319adf61c33ab16873f9ef5dbb30b291a832d375172f0b2d24e3c9
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - default
+      - indexer-internal
+
+  backend:
+    image: rag-platform-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/rag
+      DB_USERNAME: rag
+      DB_PASSWORD: rag
+      RAG_ADMIN_USERNAME: ${RAG_ADMIN_USERNAME:-}
+      RAG_ADMIN_PASSWORD: ${RAG_ADMIN_PASSWORD:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-ragminio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ragminio123}
+      MINIO_BUCKET: rag-documents
+      SEARCH_ENABLED: "true"
+      OPENSEARCH_URL: http://opensearch:9200
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: http://embedding-model:8000
+      EMBEDDING_MODEL: Qwen/Qwen3-Embedding-0.6B
+      EMBEDDING_REVISION: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+      EMBEDDING_DIMENSION: "1024"
+      RERANK_ENABLED: ${RERANK_ENABLED:-false}
+      RERANK_BASE_URL: http://reranker-model:8000
+      RERANK_MODEL: Qwen/Qwen3-Reranker-0.6B
+      RERANK_REVISION: e61197ed45024b0ed8a2d74b80b4d909f1255473
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_REVISION: ${LLM_REVISION:-runtime}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-PT15S}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1024}
+      LLM_CONTEXT_WINDOW_TOKENS: ${LLM_CONTEXT_WINDOW_TOKENS:-8192}
+      LLM_LOCAL_ENDPOINT: ${LLM_LOCAL_ENDPOINT:-false}
+      LLM_REMOTE_EVIDENCE_ALLOWED: ${LLM_REMOTE_EVIDENCE_ALLOWED:-false}
+      LLM_REMOTE_MEMORY_ALLOWED: ${LLM_REMOTE_MEMORY_ALLOWED:-false}
+      MEMORY_SUGGESTION_WORKER_ENABLED: ${MEMORY_SUGGESTION_WORKER_ENABLED:-true}
+      GRAPH_ENABLED: "true"
+      GRAPH_WORKER_ENABLED: "false"
+      GRAPH_GLOBAL_WORKER_ENABLED: "false"
+      GRAPH_EXTRACTION_ENABLED: ${GRAPH_EXTRACTION_ENABLED:-false}
+      GRAPH_EXTRACTION_BASE_URL: ${GRAPH_EXTRACTION_BASE_URL:-http://host.docker.internal:11434/v1}
+      GRAPH_EXTRACTION_MODEL: ${GRAPH_EXTRACTION_MODEL:-}
+      GRAPH_EXTRACTION_REVISION: ${GRAPH_EXTRACTION_REVISION:-}
+      GRAPH_EXTRACTION_API_KEY: ${GRAPH_EXTRACTION_API_KEY:-}
+      GRAPH_EXTRACTION_LOCAL_ENDPOINT: ${GRAPH_EXTRACTION_LOCAL_ENDPOINT:-false}
+      GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED: ${GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED:-false}
+      GRAPH_COMMUNITY_BASE_URL: http://worker:8000
+      EVALUATION_OBSERVABILITY_ENABLED: "true"
+      EVALUATION_DRILLS_ENABLED: ${EVALUATION_DRILLS_ENABLED:-true}
+      EVALUATION_REAL_ENABLED: ${EVALUATION_REAL_ENABLED:-false}
+      EVALUATION_REAL_DRILLS_ENABLED: ${EVALUATION_REAL_DRILLS_ENABLED:-false}
+      EVALUATION_RETENTION: ${EVALUATION_RETENTION:-P14D}
+      EVALUATION_DRILL_STEP_DURATION: ${EVALUATION_DRILL_STEP_DURATION:-PT2S}
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - default
+      - model-internal
+
+  model-cache-init:
+    profiles: ["hybrid"]
+    image: vllm/vllm-openai:v0.25.1@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089
+    entrypoint: ["python3", "-c"]
+    command:
+      - |
+        from huggingface_hub import snapshot_download
+        snapshot_download("Qwen/Qwen3-Embedding-0.6B", revision="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3")
+        snapshot_download("Qwen/Qwen3-Reranker-0.6B", revision="e61197ed45024b0ed8a2d74b80b4d909f1255473")
+    environment:
+      HF_HOME: /model-cache
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - model-cache:/model-cache
+    restart: "no"
+
+  embedding-model:
+    profiles: ["hybrid"]
+    image: vllm/vllm-openai:v0.25.1@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089
+    depends_on:
+      model-cache-init:
+        condition: service_completed_successfully
+    command:
+      - Qwen/Qwen3-Embedding-0.6B
+      - --revision
+      - 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+      - --served-model-name
+      - Qwen/Qwen3-Embedding-0.6B
+      - --runner
+      - pooling
+      - --convert
+      - embed
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "2048"
+      - --max-num-seqs
+      - "1"
+      - --gpu-memory-utilization
+      - "0.32"
+      - --enforce-eager
+    environment:
+      HF_HOME: /model-cache
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - model-cache:/model-cache:ro
+    gpus: all
+    cpus: 2.0
+    mem_limit: 2560m
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 240s
+    networks:
+      - model-internal
+
+  reranker-model:
+    profiles: ["hybrid"]
+    image: vllm/vllm-openai:v0.25.1@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089
+    depends_on:
+      model-cache-init:
+        condition: service_completed_successfully
+    command:
+      - Qwen/Qwen3-Reranker-0.6B
+      - --revision
+      - e61197ed45024b0ed8a2d74b80b4d909f1255473
+      - --served-model-name
+      - Qwen/Qwen3-Reranker-0.6B
+      - --runner
+      - pooling
+      - --convert
+      - classify
+      - --hf-overrides
+      - '{"architectures":["Qwen3ForSequenceClassification"],"classifier_from_token":["no","yes"],"is_original_qwen3_reranker":true}'
+      - --chat-template
+      - /vllm-workspace/examples/pooling/score/template/qwen3_reranker.jinja
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "1536"
+      - --max-num-seqs
+      - "32"
+      - --gpu-memory-utilization
+      - "0.32"
+      - --enforce-eager
+    environment:
+      HF_HOME: /model-cache
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - model-cache:/model-cache:ro
+    gpus: all
+    cpus: 2.0
+    mem_limit: 2560m
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 240s
+    networks:
+      - model-internal
+
+  parser-worker:
+    image: rag-platform-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CHAT_ENABLED: "false"
+      PIPELINE_WORKER_ENABLED: "true"
+      PIPELINE_WORKER_ID: parser-worker-1
+      PIPELINE_WORKER_STAGE: PARSE
+      PIPELINE_TASK_TIMEOUT: PT15M
+      DB_URL: jdbc:postgresql://postgres:5432/rag
+      DB_USERNAME: rag
+      DB_PASSWORD: rag
+      RAG_ADMIN_USERNAME: ""
+      RAG_ADMIN_PASSWORD: ""
+      GRAPH_ENABLED: "false"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-ragminio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ragminio123}
+      MINIO_BUCKET: rag-documents
+      MINERU_ENABLED: ${MINERU_ENABLED:-false}
+      MINERU_ENDPOINT: ${MINERU_ENDPOINT:-http://mineru:8000}
+      MINERU_VERSION: "3.4.4"
+      MINERU_MODEL_REVISION: bff20d4ae2bf202df9f45284b4d43681555a97ed
+      MINERU_MODEL_MANIFEST_CHECKSUM: 16981dc38075623ddec4fdcf7f055c89688f44a92076f534919f465be46c82e7
+      MINERU_TIMEOUT: PT14M
+      MINERU_MAX_PAGES: "200"
+      MINERU_LOCAL_ENDPOINT: ${MINERU_LOCAL_ENDPOINT:-true}
+      GPU_ACTIVE_PROFILE: ${GPU_ACTIVE_PROFILE:-none}
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cpus: 1.0
+    mem_limit: 768m
+    restart: unless-stopped
+    networks:
+      - parser-internal
+      - mineru-internal
+
+  mineru:
+    profiles: ["mineru"]
+    image: rag-platform-mineru:3.4.4
+    build:
+      context: ./mineru
+    environment:
+      MINERU_API_MAX_CONCURRENT_REQUESTS: "1"
+      MINERU_API_TASK_RETENTION_SECONDS: "900"
+      MINERU_API_OUTPUT_ROOT: /tmp/mineru-output
+      MINERU_MODEL_SOURCE: local
+    user: "10001:10001"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=1g,exec
+      - /home/mineru:size=1g,exec,uid=10001,gid=10001,mode=1770
+    gpus: all
+    cpus: 4.0
+    mem_limit: 6g
+    shm_size: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 300s
+    restart: "no"
+    networks:
+      - mineru-internal
+
+  indexer-worker:
+    image: rag-platform-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    environment:
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CHAT_ENABLED: "false"
+      PIPELINE_WORKER_ENABLED: "true"
+      PIPELINE_WORKER_ID: indexer-worker-1
+      PIPELINE_WORKER_STAGE: INDEX
+      DB_URL: jdbc:postgresql://postgres:5432/rag
+      DB_USERNAME: rag
+      DB_PASSWORD: rag
+      RAG_ADMIN_USERNAME: ""
+      RAG_ADMIN_PASSWORD: ""
+      STORAGE_INITIALIZE: "false"
+      GRAPH_ENABLED: "false"
+      SEARCH_ENABLED: "true"
+      OPENSEARCH_URL: http://opensearch:9200
+      SEARCH_GENERATION_WORKER_ENABLED: ${SEARCH_GENERATION_WORKER_ENABLED:-false}
+      SEARCH_GENERATION_WORKER_ID: indexer-generation-worker-1
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: http://embedding-model:8000
+      EMBEDDING_MODEL: Qwen/Qwen3-Embedding-0.6B
+      EMBEDDING_REVISION: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+      EMBEDDING_DIMENSION: "1024"
+      EMBEDDING_TIMEOUT: ${INDEXER_EMBEDDING_TIMEOUT:-PT30S}
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    cpus: 1.0
+    mem_limit: 768m
+    restart: unless-stopped
+    networks:
+      - indexer-internal
+      - model-internal
+
+  evaluation-worker:
+    image: rag-platform-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      EVALUATION_CATALOG_IMPORT_ENABLED: "true"
+      EVALUATION_WORKER_ENABLED: "true"
+      EVALUATION_WORKER_ID: evaluation-worker-1
+      EVALUATION_OBSERVABILITY_ENABLED: "true"
+      EVALUATION_DRILLS_ENABLED: ${EVALUATION_DRILLS_ENABLED:-true}
+      EVALUATION_REAL_ENABLED: ${EVALUATION_REAL_ENABLED:-false}
+      EVALUATION_REAL_DRILLS_ENABLED: ${EVALUATION_REAL_DRILLS_ENABLED:-false}
+      EVALUATION_RETENTION: ${EVALUATION_RETENTION:-P14D}
+      EVALUATION_DRILL_STEP_DURATION: ${EVALUATION_DRILL_STEP_DURATION:-PT2S}
+      DB_URL: jdbc:postgresql://postgres:5432/rag
+      DB_USERNAME: rag
+      DB_PASSWORD: rag
+      RAG_ADMIN_USERNAME: ""
+      RAG_ADMIN_PASSWORD: ""
+      STORAGE_INITIALIZE: "false"
+      CHAT_ENABLED: ${EVALUATION_REAL_ENABLED:-false}
+      GRAPH_ENABLED: ${EVALUATION_REAL_ENABLED:-false}
+      SEARCH_ENABLED: ${EVALUATION_REAL_ENABLED:-false}
+      OPENSEARCH_URL: http://opensearch:9200
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: http://embedding-model:8000
+      EMBEDDING_MODEL: Qwen/Qwen3-Embedding-0.6B
+      EMBEDDING_REVISION: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+      EMBEDDING_DIMENSION: "1024"
+      RERANK_ENABLED: ${RERANK_ENABLED:-false}
+      RERANK_BASE_URL: http://reranker-model:8000
+      RERANK_MODEL: Qwen/Qwen3-Reranker-0.6B
+      RERANK_REVISION: e61197ed45024b0ed8a2d74b80b4d909f1255473
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_REVISION: ${LLM_REVISION:-runtime}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-PT15S}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1024}
+      LLM_LOCAL_ENDPOINT: ${LLM_LOCAL_ENDPOINT:-false}
+      LLM_REMOTE_EVIDENCE_ALLOWED: ${LLM_REMOTE_EVIDENCE_ALLOWED:-false}
+      LLM_REMOTE_MEMORY_ALLOWED: ${LLM_REMOTE_MEMORY_ALLOWED:-false}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cpus: 0.5
+    mem_limit: 512m
+    restart: unless-stopped
+    networks:
+      - default
+      - model-internal
+
+  postgres-test:
+    profiles: ["test"]
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: rag_test
+      POSTGRES_USER: rag_test
+      POSTGRES_PASSWORD: rag_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_test -d rag_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  opensearch-test:
+    profiles: ["test"]
+    image: opensearchproject/opensearch:3.7.0@sha256:44ba7ea58a319adf61c33ab16873f9ef5dbb30b291a832d375172f0b2d24e3c9
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    tmpfs:
+      - /usr/share/opensearch/data:uid=1000,gid=1000,mode=0750
+
+  backend-test:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      target: test
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      opensearch-test:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres-test:5432/rag_test
+      DB_USERNAME: rag_test
+      DB_PASSWORD: rag_test
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "0"
+      RAG_ADMIN_USERNAME: ${RAG_ADMIN_USERNAME:-}
+      RAG_ADMIN_PASSWORD: ${RAG_ADMIN_PASSWORD:-}
+      SESSION_COOKIE_SECURE: "false"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-ragminio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ragminio123}
+      MINIO_BUCKET: rag-documents-test
+      STORAGE_ORPHAN_RETENTION: PT0S
+      STORAGE_CLEANUP_DELAY_MS: 60000
+      SEARCH_ENABLED: "true"
+      OPENSEARCH_URL: http://opensearch-test:9200
+      SEARCH_PROJECTION_DELAY_MS: "3600000"
+      RUN_PHASE7A_BENCHMARK: ${RUN_PHASE7A_BENCHMARK:-false}
+      EMBEDDING_ENABLED: ${TEST_EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: http://embedding-model:8000
+      EMBEDDING_MODEL: Qwen/Qwen3-Embedding-0.6B
+      EMBEDDING_REVISION: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+      EMBEDDING_DIMENSION: "1024"
+    networks:
+      - default
+      - model-internal
+
+  worker:
+    image: rag-platform-worker:local
+    build:
+      context: ./worker
+    ports:
+      - "127.0.0.1:8001:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    cpus: 1.0
+    mem_limit: 512m
+
+  graph-worker:
+    profiles: ["graph"]
+    image: rag-platform-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    environment:
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CHAT_ENABLED: "false"
+      PIPELINE_WORKER_ENABLED: "false"
+      SEARCH_ENABLED: "false"
+      STORAGE_INITIALIZE: "false"
+      DB_URL: jdbc:postgresql://postgres:5432/rag
+      DB_USERNAME: rag
+      DB_PASSWORD: rag
+      RAG_ADMIN_USERNAME: ""
+      RAG_ADMIN_PASSWORD: ""
+      GRAPH_ENABLED: "true"
+      GRAPH_WORKER_ENABLED: "true"
+      GRAPH_GLOBAL_WORKER_ENABLED: "false"
+      GRAPH_WORKER_ID: graph-worker-1
+      GRAPH_EXTRACTION_ENABLED: ${GRAPH_EXTRACTION_ENABLED:-false}
+      GRAPH_EXTRACTION_BASE_URL: ${GRAPH_EXTRACTION_BASE_URL:-http://host.docker.internal:11434/v1}
+      GRAPH_EXTRACTION_MODEL: ${GRAPH_EXTRACTION_MODEL:-}
+      GRAPH_EXTRACTION_REVISION: ${GRAPH_EXTRACTION_REVISION:-}
+      GRAPH_EXTRACTION_API_KEY: ${GRAPH_EXTRACTION_API_KEY:-}
+      GRAPH_EXTRACTION_LOCAL_ENDPOINT: ${GRAPH_EXTRACTION_LOCAL_ENDPOINT:-false}
+      GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED: ${GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED:-false}
+      GRAPH_COMMUNITY_BASE_URL: http://worker:8000
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    cpus: 1.0
+    mem_limit: 768m
+    restart: unless-stopped
+
+  global-graph-worker:
+    profiles: ["graph"]
+    image: rag-platform-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    environment:
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CHAT_ENABLED: "false"
+      PIPELINE_WORKER_ENABLED: "false"
+      SEARCH_ENABLED: "true"
+      SEARCH_GENERATION_WORKER_ENABLED: "false"
+      STORAGE_INITIALIZE: "false"
+      DB_URL: jdbc:postgresql://postgres:5432/rag
+      DB_USERNAME: rag
+      DB_PASSWORD: rag
+      RAG_ADMIN_USERNAME: ""
+      RAG_ADMIN_PASSWORD: ""
+      OPENSEARCH_URL: http://opensearch:9200
+      GRAPH_ENABLED: "true"
+      GRAPH_WORKER_ENABLED: "false"
+      GRAPH_GLOBAL_WORKER_ENABLED: "true"
+      GRAPH_WORKER_ID: global-graph-worker-1
+      GRAPH_EXTRACTION_ENABLED: ${GRAPH_EXTRACTION_ENABLED:-false}
+      GRAPH_EXTRACTION_BASE_URL: ${GRAPH_EXTRACTION_BASE_URL:-http://host.docker.internal:11434/v1}
+      GRAPH_EXTRACTION_MODEL: ${GRAPH_EXTRACTION_MODEL:-}
+      GRAPH_EXTRACTION_REVISION: ${GRAPH_EXTRACTION_REVISION:-}
+      GRAPH_EXTRACTION_API_KEY: ${GRAPH_EXTRACTION_API_KEY:-}
+      GRAPH_EXTRACTION_LOCAL_ENDPOINT: ${GRAPH_EXTRACTION_LOCAL_ENDPOINT:-false}
+      GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED: ${GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED:-false}
+      GRAPH_COMMUNITY_BASE_URL: http://worker:8000
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: http://embedding-model:8000
+      EMBEDDING_MODEL: Qwen/Qwen3-Embedding-0.6B
+      EMBEDDING_REVISION: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
+      EMBEDDING_DIMENSION: "1024"
+      EMBEDDING_TIMEOUT: ${INDEXER_EMBEDDING_TIMEOUT:-PT30S}
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    cpus: 1.0
+    mem_limit: 1024m
+    restart: unless-stopped
+    networks:
+      - default
+      - model-internal
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:5173:5173"
+
+volumes:
+  postgres-data:
+  minio-data:
+  opensearch-data:
+  model-cache:
+
+networks:
+  default:
+  parser-internal:
+    internal: true
+  indexer-internal:
+    internal: true
+  model-internal:
+    internal: true
+  mineru-internal:
+    internal: true

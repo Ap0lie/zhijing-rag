@@ -1,0 +1,39 @@
+%%{init: {"theme":"base","securityLevel":"strict","fontFamily":"Segoe UI, Arial, sans-serif","themeVariables":{"background":"#ffffff","primaryTextColor":"#10213d","lineColor":"#8391a5","fontSize":"16px","clusterBkg":"#fbfcfe","clusterBorder":"#dbe4ee"},"flowchart":{"curve":"linear","htmlLabels":true,"nodeSpacing":32,"rankSpacing":42,"diagramPadding":18}}}%%
+block-beta
+    columns 10
+
+    T_ENTRY["Online service layer"]:2
+    ONLINE["<b>Unified request boundary</b><br/>Sessions · CSRF · Request routing · ACL · Evidence · Citation checks"]:8
+    USER["<b>Users / administrators</b><br/>Browser access"]:2
+    WEB["<b>React 19 SPA</b><br/>Nginx static hosting<br/>Same-origin /api proxy"]:3
+    API["<b>Spring Boot 3.5 / Java 21</b><br/>REST + SSE<br/>Documents · Search · Chat · Admin APIs"]:5
+
+    T_CORE["Persistence & execution layer"]:2
+    CORE["<b>Shared facts and execution boundary</b><br/>PostgreSQL transactions / leases · ACL · Revision · Generation · Events"]:8
+    PG["<b>PostgreSQL 17</b><br/>System of record: ACL · Revision · Job<br/>Chunk · Generation · Citation · Evaluation"]:2
+    MINIO["<b>MinIO</b><br/>Private originals and parse assets<br/>Authorized upload / download"]:2
+    OS["<b>OpenSearch 3.7</b><br/>Rebuildable candidate projection<br/>BM25 · Vector · Global Report"]:2
+    WORKERS["<b>Java offline workers</b><br/>Parse · Index · Graph · Global · Eval<br/>Leases / fencing · takeover"]:2
+    COMMUNITY["<b>Python Community</b><br/>Anonymous topology<br/>Deterministic Leiden"]:2
+
+    T_OPT["Optional capability layer"]:2
+    OPT["<b>Optional-call boundary</b><br/>Pinned model / revision · Provider health · Remote consent · GPU profile exclusion"]:8
+    EMBED["<b>Qwen3 Embedding / Reranker</b><br/>Query and document vectors<br/>One rerank"]:3
+    LLM["<b>OpenAI-compatible LLM</b><br/>Rewrite · Answer<br/>Graph extraction · Global reports"]:4
+    MINERU["<b>MinerU</b><br/>Complex PDFs · OCR<br/>Table and image structure"]:3
+
+    USER --- WEB --- API
+
+    classDef section fill:transparent,color:#10213d,stroke:transparent,font-size:18px,font-weight:700
+    classDef entry fill:#ffffff,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef primary fill:#edf4fc,color:#10213d,stroke:#5f7fa6,stroke-width:1.8px
+    classDef bus fill:#eef3f8,color:#17304f,stroke:#9eafc4,stroke-width:1.4px
+    classDef neutral fill:#f8fafc,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef accent fill:#fff5e9,color:#722f0e,stroke:#ff7a16,stroke-width:2px
+
+    class T_ENTRY,T_CORE,T_OPT section
+    class USER,WEB entry
+    class API primary
+    class ONLINE,CORE,OPT bus
+    class PG,MINIO,OS,COMMUNITY,EMBED,LLM,MINERU neutral
+    class WORKERS accent

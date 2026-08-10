@@ -1,0 +1,39 @@
+%%{init: {"theme":"base","securityLevel":"strict","fontFamily":"Microsoft YaHei, Segoe UI, Arial, sans-serif","themeVariables":{"background":"#ffffff","primaryTextColor":"#10213d","lineColor":"#8391a5","fontSize":"16px","clusterBkg":"#fbfcfe","clusterBorder":"#dbe4ee"},"flowchart":{"curve":"linear","htmlLabels":true,"nodeSpacing":32,"rankSpacing":42,"diagramPadding":18}}}%%
+block-beta
+    columns 10
+
+    T_ENTRY["在线服务层"]:2
+    ONLINE["<b>统一请求边界</b><br/>Session · CSRF · 请求级路由 · ACL · Evidence · Citation 复核"]:8
+    USER["<b>用户 / 管理员</b><br/>浏览器访问"]:2
+    WEB["<b>React 19 SPA</b><br/>Nginx 静态托管<br/>同源 /api 反向代理"]:3
+    API["<b>Spring Boot 3.5 / Java 21</b><br/>REST + SSE<br/>文档 · 检索 · 问答 · 管理 API"]:5
+
+    T_CORE["持久与执行层"]:2
+    CORE["<b>共享事实与执行边界</b><br/>PostgreSQL 事务 / 租约 · ACL · Revision · Generation · Event"]:8
+    PG["<b>PostgreSQL 17</b><br/>权威事实：ACL · Revision · Job<br/>Chunk · Generation · Citation · Evaluation"]:2
+    MINIO["<b>MinIO</b><br/>私有原文件与解析资产<br/>鉴权上传 / 下载"]:2
+    OS["<b>OpenSearch 3.7</b><br/>可重建候选投影<br/>BM25 · Vector · Global Report"]:2
+    WORKERS["<b>Java 离线 Worker</b><br/>Parse · Index · Graph · Global · Eval<br/>租约 / fencing · 中断接管"]:2
+    COMMUNITY["<b>Python Community</b><br/>匿名拓扑<br/>确定性 Leiden"]:2
+
+    T_OPT["可选能力层"]:2
+    OPT["<b>可选调用边界</b><br/>固定 model / revision · Provider Health · 远程授权 · GPU Profile 互斥"]:8
+    EMBED["<b>Qwen3 Embedding / Reranker</b><br/>查询与文档向量<br/>单次 Rerank"]:3
+    LLM["<b>OpenAI-compatible LLM</b><br/>Rewrite · Answer<br/>Graph extraction · Global Report"]:4
+    MINERU["<b>MinerU</b><br/>复杂 PDF · OCR<br/>表格与图片结构"]:3
+
+    USER --- WEB --- API
+
+    classDef section fill:transparent,color:#10213d,stroke:transparent,font-size:18px,font-weight:700
+    classDef entry fill:#ffffff,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef primary fill:#edf4fc,color:#10213d,stroke:#5f7fa6,stroke-width:1.8px
+    classDef bus fill:#eef3f8,color:#17304f,stroke:#9eafc4,stroke-width:1.4px
+    classDef neutral fill:#f8fafc,color:#10213d,stroke:#9eafc4,stroke-width:1.5px
+    classDef accent fill:#fff5e9,color:#722f0e,stroke:#ff7a16,stroke-width:2px
+
+    class T_ENTRY,T_CORE,T_OPT section
+    class USER,WEB entry
+    class API primary
+    class ONLINE,CORE,OPT bus
+    class PG,MINIO,OS,COMMUNITY,EMBED,LLM,MINERU neutral
+    class WORKERS accent

@@ -1,0 +1,71 @@
+svg {
+  background: #ffffff;
+  font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+}
+
+.nodeLabel p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.nodeLabel b {
+  color: #10213d;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.node rect,
+.node polygon,
+.node path {
+  filter: none;
+}
+
+.node rect {
+  rx: 10px;
+  ry: 10px;
+}
+
+.node.section rect {
+  filter: none;
+}
+
+.node[id$="-undefined"] {
+  display: none;
+}
+
+.node.bus rect {
+  height: 64px;
+  y: -32px;
+  rx: 12px;
+  ry: 12px;
+}
+
+.cluster rect {
+  rx: 14px;
+  ry: 14px;
+}
+
+.cluster-label span,
+.cluster-label text {
+  color: #0b1f3a !important;
+  fill: #0b1f3a !important;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.flowchart-link {
+  stroke: #8391a5 !important;
+  stroke-width: 1.4px !important;
+}
+
+.marker {
+  fill: #718198 !important;
+  stroke: #718198 !important;
+}
+
+.edgeLabel,
+.edgeLabel p {
+  background: #ffffff !important;
+  color: #31445e !important;
+  font-size: 13px;
+}

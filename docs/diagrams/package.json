@@ -1,0 +1,22 @@
+{
+  "name": "zhijing-rag-doc-diagrams",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:browser": "puppeteer browsers install chrome-headless-shell",
+    "render": "npm run render:svg && npm run render:png",
+    "render:svg": "npm run render:architecture:zh:svg && npm run render:architecture:en:svg && npm run render:retrieval:zh:svg && npm run render:retrieval:en:svg",
+    "render:png": "npm run render:architecture:zh:png && npm run render:architecture:en:png && npm run render:retrieval:zh:png && npm run render:retrieval:en:png",
+    "render:architecture:zh:svg": "mmdc -p puppeteer-config.json -C diagram.css -i architecture.zh-CN.mmd -o ../assets/architecture.zh-CN.svg -b white -w 1800 -H 1200",
+    "render:architecture:en:svg": "mmdc -p puppeteer-config.json -C diagram.css -i architecture.en.mmd -o ../assets/architecture.en.svg -b white -w 1800 -H 1200",
+    "render:retrieval:zh:svg": "mmdc -p puppeteer-config.json -C diagram.css -i retrieval-flow.zh-CN.mmd -o ../assets/retrieval-flow.zh-CN.svg -b white -w 1800 -H 900",
+    "render:retrieval:en:svg": "mmdc -p puppeteer-config.json -C diagram.css -i retrieval-flow.en.mmd -o ../assets/retrieval-flow.en.svg -b white -w 1800 -H 900",
+    "render:architecture:zh:png": "mmdc -p puppeteer-config.json -C diagram.css -i architecture.zh-CN.mmd -o ../assets/architecture.zh-CN.png -b white -w 1800 -H 1200 -s 1",
+    "render:architecture:en:png": "mmdc -p puppeteer-config.json -C diagram.css -i architecture.en.mmd -o ../assets/architecture.en.png -b white -w 1800 -H 1200 -s 1",
+    "render:retrieval:zh:png": "mmdc -p puppeteer-config.json -C diagram.css -i retrieval-flow.zh-CN.mmd -o ../assets/retrieval-flow.zh-CN.png -b white -w 1800 -H 900 -s 1",
+    "render:retrieval:en:png": "mmdc -p puppeteer-config.json -C diagram.css -i retrieval-flow.en.mmd -o ../assets/retrieval-flow.en.png -b white -w 1800 -H 900 -s 1"
+  },
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "11.16.0"
+  }
+}

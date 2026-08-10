@@ -1,0 +1,5 @@
+Phase 15B TXT 浏览器验收
+
+TXT-SENTINEL-1501 的发布状态是 READY。
+This plain-text source confirms that English and 中文 content share one retrieval chain.
+引用应定位到当前 Revision 的章节与行范围，而不是伪造 PDF 页码。

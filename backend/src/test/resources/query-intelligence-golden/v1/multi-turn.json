@@ -1,0 +1,62 @@
+{
+  "version": "query-multiturn-golden-v1",
+  "language": "mixed",
+  "cases": [
+    {
+      "caseKey": "en-jonathan-followup",
+      "language": "en",
+      "input": {
+        "turns": [
+          "Who is Jonathan Smith in the Oregon State article?",
+          "How many victories did he guide them to in 2021?"
+        ]
+      },
+      "expected": {"requiresHistory": true},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:fb6eed05a933438ffb9f71e91e83ee31"}
+      ]
+    },
+    {
+      "caseKey": "zh-jonathan-followup",
+      "language": "zh",
+      "input": {
+        "turns": [
+          "介绍一下 Oregon State 文章中的 Jonathan Smith。",
+          "他在 2021 年带队取得了多少场胜利？"
+        ]
+      },
+      "expected": {"requiresHistory": true},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:fb6eed05a933438ffb9f71e91e83ee31"}
+      ]
+    },
+    {
+      "caseKey": "en-prime-day-followup",
+      "language": "en",
+      "input": {
+        "turns": [
+          "What source discusses Prime Day smart home deals?",
+          "What is the main topic of that source?"
+        ]
+      },
+      "expected": {"requiresHistory": true},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:8023d539e751850a96c50953ea29300e"}
+      ]
+    },
+    {
+      "caseKey": "zh-vpn-followup",
+      "language": "zh",
+      "input": {
+        "turns": [
+          "哪份公共文档讨论了 VPN 服务？",
+          "它主要比较的是什么？"
+        ]
+      },
+      "expected": {"requiresHistory": true},
+      "evidenceRefs": [
+        {"evidenceKey": "evidence:a83246476eedf95d78fd5304a2220db2"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>安全网页知识</title>
+  <style>body { background-image: url("https://attacker.invalid/style"); }</style>
+  <script>window.secret = "never-index-this";</script>
+</head>
+<body onload="steal()">
+  <h1>安全网页知识</h1>
+  <p>HTML 解析不会请求远程资源，只保留安全正文和可引用的 DOM 位置。</p>
+  <iframe src="https://attacker.invalid/frame"></iframe>
+  <h2>可信引用</h2>
+  <p>每条 Citation 都必须绑定当前 Revision 的 Child 和 SourceLocator。</p>
+  <a href="javascript:steal()">不可执行链接</a>
+</body>
+</html>
