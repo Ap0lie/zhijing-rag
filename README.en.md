@@ -1,7 +1,7 @@
 # Zhijing RAG
 
 <p align="center">
-  <a href="./README.md">简体中文</a> · <strong>English</strong>
+  <a href="./README.en.md">English</a> | <a href="./README.md">简体中文</a>
 </p>
 
 <p align="center">
