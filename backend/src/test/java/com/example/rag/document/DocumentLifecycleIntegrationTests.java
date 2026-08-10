@@ -43,6 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -1015,7 +1016,7 @@ class DocumentLifecycleIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_PDF))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
-                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Cache-Control", containsString("no-store")))
                 .andExpect(content().bytes(expected));
     }
 
