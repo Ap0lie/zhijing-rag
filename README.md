@@ -1,11 +1,11 @@
-# 知境 RAG
+# Zhijing RAG
 
 <p align="center">
-  <a href="./README.en.md">English</a> | <a href="./README.md">简体中文</a>
+  <a href="./README.md">English</a> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  面向私有知识库的本地优先、多格式、权限感知 RAG 平台
+  A local-first, multi-format, ACL-aware RAG platform for private knowledge bases
 </p>
 
 <p align="center">
@@ -18,41 +18,41 @@
   <img alt="Apache License 2.0" src="https://img.shields.io/badge/License-Apache_2.0-D22128?logo=apache&logoColor=white">
 </p>
 
-知境 RAG 将文档接入、混合检索、Local/Global GraphRAG、证据引用、权限复核、评测与运维放在一条可追溯主链中。PostgreSQL 保存 ACL、当前 Revision、Citation 和 Generation 等权威事实；OpenSearch 只承担可重建的检索投影。
+Zhijing RAG puts document ingestion, hybrid retrieval, Local/Global GraphRAG, grounded citations, authorization checks, evaluation, and operations on one traceable path. PostgreSQL is the authoritative source for ACLs, current revisions, citations, and generations; OpenSearch contains rebuildable retrieval projections only.
 
-术语约定：Revision 是不可变文档版本，Child 是可检索证据单元，SourceLocator 是格式原生的来源位置，Generation 是不可变的索引或图构建版本。
+Terminology: a revision is an immutable document version, a Child is a searchable evidence unit, a SourceLocator is a format-native source position, and a generation is an immutable index or graph build.
 
 > [!IMPORTANT]
-> 项目仍在持续完善。仓库中的 Compose 面向本地单机运行与评测，不是可以原样暴露到公网的生产部署模板。
+> This project is under active improvement. The included Compose stack targets local single-machine use and evaluation; it is not a production template that should be exposed to the public internet unchanged.
 
-[核心能力](#核心能力) · [快速开始](#快速开始) · [架构](#架构) · [支持格式](#支持格式) · [模型与可选能力](#模型与可选能力) · [评测](#评测) · [安全边界](#安全边界) · [许可证](#许可证)
+[Capabilities](#capabilities) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Formats](#supported-formats) · [Models](#models-and-optional-capabilities) · [Evaluation](#evaluation) · [Security](#security-boundaries) · [License](#license)
 
-## 核心能力
+## Capabilities
 
-| 能力 | 当前实现 |
+| Area | Current implementation |
 | --- | --- |
-| 多格式文档 | PDF、TXT、Markdown、HTML、DOCX、PPTX、XLSX、CSV 共用同一上传、Revision、Pipeline、索引和引用主链 |
-| 可追溯引用 | 回答只引用通过实时 ACL、当前 Revision 和 SourceLocator 复核的 Child Evidence |
-| 混合检索 | BM25 与可选向量召回，经 RRF 合并、单次 Rerank、Evidence 预算和最终权限复核 |
-| GraphRAG | PostgreSQL 定向邻接表、不可变 Graph Generation、Local 多跳检索、Global Community Report |
-| 安全降级 | 模型或图分支不可用时按受控路径降级；PostgreSQL 权限复核不可用时 fail closed |
-| 用户记忆 | 默认关闭、用户确认、owner-scoped；文档事实仍必须重新进入 Evidence/Citation 链 |
-| 管理与评测 | 文档 Pipeline、索引与图发布、受限子图可视化、不可变 Dataset/Run/Baseline 和操作审计 |
+| Multi-format documents | PDF, TXT, Markdown, HTML, DOCX, PPTX, XLSX, and CSV share one upload, revision, pipeline, indexing, and citation lifecycle |
+| Traceable citations | Answers cite Child evidence only after live ACL, current-revision, and SourceLocator validation |
+| Hybrid retrieval | BM25 plus optional vector recall, RRF fusion, one rerank, an evidence budget, and a final authorization check |
+| GraphRAG | Directed adjacency tables in PostgreSQL, immutable graph generations, local multi-hop retrieval, and global community reports |
+| Controlled fallback | Model and graph failures use explicit fallback paths; an unavailable PostgreSQL authorization check fails closed |
+| User memory | Off by default, user-confirmed, and owner-scoped; document facts must re-enter the evidence and citation path |
+| Administration and evaluation | Document pipelines, index/graph publication, bounded subgraph visualization, immutable datasets/runs/baselines, and audit events |
 
-## 快速开始
+## Quick start
 
-克隆仓库并进入项目根目录后执行以下步骤。
+Run these steps after cloning the repository and entering its root directory.
 
-### 前置条件
+### Requirements
 
-- Docker Desktop 或 Docker Engine，支持 Compose v2。
-- 基础文档上传、PDFBox/Office 解析和 BM25 检索不要求 GPU 或 LLM。
+- Docker Desktop or Docker Engine with Compose v2.
+- Basic upload, PDFBox/Office parsing, and BM25 retrieval do not require a GPU or an LLM.
 
-### 1. 启动基础服务
+### 1. Start the base stack
 
-首次使用全新数据库时，必须同时设置管理员用户名和密码。密码至少 8 个字符，且不超过 72 UTF-8 bytes。可以复制 [`.env.example`](./.env.example) 为 `.env` 并设置强密码，也可以直接设置以下环境变量。
+For a new database, set both bootstrap administrator variables. The password must contain at least 8 characters and at most 72 UTF-8 bytes. Copy [`.env.example`](./.env.example) to `.env` and set a strong password, or set the following environment variables directly.
 
-PowerShell：
+PowerShell:
 
 ```powershell
 $env:RAG_ADMIN_USERNAME = "admin"
@@ -61,7 +61,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Bash：
+Bash:
 
 ```bash
 export RAG_ADMIN_USERNAME=admin
@@ -70,77 +70,77 @@ docker compose up -d --build
 docker compose ps
 ```
 
-这两个变量只在管理员不存在时创建账号，不会在容器重启时重置已有密码。
+These variables create the administrator only when it does not exist. Restarting containers does not reset an existing password.
 
-### 2. 打开应用
+### 2. Open the application
 
-- Web：<http://localhost:5173>
-- Backend health：<http://localhost:8080/actuator/health>
-- MinIO Console：<http://localhost:9001>
+- Web: <http://localhost:5173>
+- Backend health: <http://localhost:8080/actuator/health>
+- MinIO Console: <http://localhost:9001>
 
-上传后系统会自动执行 `PARSE → CHUNK → INDEX`。Revision 达到 READY 并成为当前版本后即可搜索；配置并启用 LLM 后，Chat 才能生成带引用回答。两者都不要求用户手动建立索引。
+After upload, the platform automatically runs `PARSE → CHUNK → INDEX`. Once a revision is READY and current, it is searchable. Chat can generate cited answers only after an LLM is configured and enabled. Users never build an index manually.
 
-### 本机端口
+### Local ports
 
-所有默认宿主端口都只绑定 `127.0.0.1`。
+All default host ports bind to `127.0.0.1` only.
 
-| 服务 | 地址 | 说明 |
+| Service | Address | Purpose |
 | --- | --- | --- |
-| Frontend | `127.0.0.1:5173` | React UI；Nginx 同源代理 `/api` |
-| Backend | `127.0.0.1:8080` | REST、SSE、Actuator |
-| PostgreSQL | `127.0.0.1:5432` | 权威事实库；仅本机端口 |
-| MinIO Console | `127.0.0.1:9001` | 对象 API `9000` 默认只在容器网络内 |
-| OpenSearch | `127.0.0.1:9200` | 可重建检索投影；仅本机端口 |
-| Community Worker | `127.0.0.1:8001` | Python/Leiden 内部 Worker |
+| Frontend | `127.0.0.1:5173` | React UI; Nginx proxies `/api` on the same origin |
+| Backend | `127.0.0.1:8080` | REST, SSE, and Actuator |
+| PostgreSQL | `127.0.0.1:5432` | Authoritative state; local-only port |
+| MinIO Console | `127.0.0.1:9001` | Object API `9000` stays inside the container network by default |
+| OpenSearch | `127.0.0.1:9200` | Rebuildable search projections; local-only port |
+| Community Worker | `127.0.0.1:8001` | Internal Python/Leiden worker |
 
-## 支持格式
+## Supported formats
 
-非 PDF 文档不会伪造页码。每种格式都使用可回到原始结构位置的 `SourceLocator`。
+Non-PDF documents never receive fabricated page numbers. Every format uses a `SourceLocator` that resolves back to the original structure.
 
-| 格式 | 解析器 | 引用位置 |
+| Format | Parser | Citation location |
 | --- | --- | --- |
-| PDF | PDFBox；复杂 PDF 可选 MinerU | 页码与页内 SourceSpan |
-| TXT | 定向文本解析器 | 标题、章节、行范围 |
-| Markdown | 安全 Markdown 解析 | 标题层级、代码块、表格、行范围 |
-| HTML | 无远程资源、无可执行内容的安全解析 | 章节、DOM Block/Path |
-| DOCX | Apache POI | 章节、段落、表格单元格 |
-| PPTX | Apache POI | 幻灯片、Shape、Notes、表格单元格 |
-| XLSX | 流式表格解析，不执行公式 | 工作表与 Cell Range |
-| CSV | 流式编码、分隔符和表头检测 | 表格区域与 Cell Range |
+| PDF | PDFBox; optional MinerU for complex PDFs | Page and page-relative SourceSpan |
+| TXT | Purpose-built text parser | Heading, section, and line range |
+| Markdown | Safe Markdown parsing | Heading hierarchy, code block, table, and line range |
+| HTML | Safe parsing with no remote resources or executable content | Section and DOM Block/Path |
+| DOCX | Apache POI | Section, paragraph, and table cell |
+| PPTX | Apache POI | Slide, shape, notes, and table cell |
+| XLSX | Streaming spreadsheet parser; formulas are never executed | Worksheet and cell range |
+| CSV | Streaming encoding, delimiter, and header detection | Table region and cell range |
 
-默认上传上限为 50 MiB；TXT、Markdown、HTML 和 CSV 另受 10 MiB 的解析安全上限约束。
+The default upload limit is 50 MiB. TXT, Markdown, HTML, and CSV also have a 10 MiB parser safety limit.
 
-## 检索与回答模式
+## Retrieval and answer modes
 
-- `HYBRID`：默认检索主链。BM25 始终可用，向量分支按配置启用。
-- `AUTO`：Chat 的默认请求模式。服务端每个请求只选择一次 `HYBRID`、`LOCAL_GRAPH` 或 `GLOBAL_GRAPH`，显式模式不会被改写。
-- `LOCAL_GRAPH`：从当前授权 Mention/Alias 建立实体种子，执行受限 1–2 跳路径扩展，再回到统一 Rerank 与 Evidence 链。
-- `GLOBAL_GRAPH`：检索由所有已登录用户可见的 `ALL_USERS` 来源构建版本化 Community Report，回溯原始 Child Evidence，并与本次用户已授权的 Hybrid Evidence 融合。
-- `DEEP_GLOBAL`：只能显式选择，最多执行 8 次 Map 和 1 次 Reduce；`AUTO` 不会隐式触发。
+- `HYBRID`: the default retrieval path. BM25 is always available; vector recall is enabled by configuration.
+- `AUTO`: the default Chat request mode. The server makes one request-level choice among `HYBRID`, `LOCAL_GRAPH`, and `GLOBAL_GRAPH`; explicit modes are never rewritten.
+- `LOCAL_GRAPH`: seeds entities from currently authorized mentions and aliases, performs bounded one- or two-hop expansion, then returns to the shared rerank and evidence path.
+- `GLOBAL_GRAPH`: searches versioned community reports built from sources visible to every authenticated user (`ALL_USERS`), resolves original Child evidence, and fuses it with Hybrid evidence authorized for the current user.
+- `DEEP_GLOBAL`: explicit only, with at most eight Map calls and one Reduce call. `AUTO` never triggers it implicitly.
 
-Graph 节点、关系和 Community Report 本身不能成为 Citation；用户看到的引用始终锚定当前有效的原文位置。
+Graph nodes, relationships, and community reports cannot be citations. User-visible citations always anchor to a currently valid source location.
 
-## 架构
+## Architecture
 
-[![知境 RAG 系统架构 PNG 预览](./docs/assets/architecture.zh-CN.png)](./docs/assets/architecture.zh-CN.svg "点击查看 SVG 高清版本")
+[![Zhijing RAG system architecture PNG preview](./docs/assets/architecture.en.png)](./docs/assets/architecture.en.svg "Open the high-resolution SVG")
 
-架构图按“在线服务层、持久与执行层、可选能力层”阅读，表示职责分层，不表示三个阶段依次执行。
+Read the architecture as three responsibility layers—online services, persistence and execution, and optional capabilities—not as three sequential runtime steps.
 
-### 检索与回答主链
+### Retrieval and answer paths
 
-流程固定为 `1 路由 → 2A/2B 二选一 → 3 回答`。2A 是 HYBRID/LOCAL_GRAPH 的单次 Rerank 主链，2B 是 Global/Deep Global 分支；两条路径最终进入同一 Citation 复核与回答边界。Evidence 数量由当前 RetrievalProfile 冻结，当前默认值为 8。
+The flow is fixed as `1 route → choose 2A or 2B → 3 answer`. Path 2A is the one-rerank HYBRID/LOCAL_GRAPH chain, while path 2B is the Global/Deep Global branch; both converge at the same citation-checking and answer boundary. The active RetrievalProfile freezes the evidence budget; its current default is eight items.
 
-[![知境 RAG 检索与回答流程 PNG 预览](./docs/assets/retrieval-flow.zh-CN.png)](./docs/assets/retrieval-flow.zh-CN.svg "点击查看 SVG 高清版本")
+[![Zhijing RAG retrieval and answer paths PNG preview](./docs/assets/retrieval-flow.en.png)](./docs/assets/retrieval-flow.en.svg "Open the high-resolution SVG")
 
-README 显示兼容性更好的 PNG，点击图片可查看 SVG 高清版本。
+The README displays broadly compatible PNG previews; click an image to open its high-resolution SVG.
 
-## 模型与可选能力
+## Models and optional capabilities
 
 ### OpenAI-compatible LLM
 
-文档检索可以不配置 LLM；Chat 生成、Query Rewrite、图谱抽取和 Global Report 需要相应的 OpenAI-compatible endpoint。
+Document retrieval works without an LLM. Chat generation, query rewriting, graph extraction, and global reports require the relevant OpenAI-compatible endpoint.
 
-本地 endpoint 示例：
+Local endpoint example:
 
 ```powershell
 $env:LLM_ENABLED = "true"
@@ -153,7 +153,7 @@ $env:LLM_LOCAL_ENDPOINT = "true"
 docker compose up -d --build backend evaluation-worker
 ```
 
-远程 endpoint 示例：
+Remote endpoint example:
 
 ```powershell
 $env:LLM_ENABLED = "true"
@@ -167,13 +167,13 @@ $env:LLM_REMOTE_MEMORY_ALLOWED = "false"
 docker compose up -d --build backend evaluation-worker
 ```
 
-不得把远程 endpoint 标记为 `LLM_LOCAL_ENDPOINT=true`。只有在明确允许个人记忆离开本机时才启用 `LLM_REMOTE_MEMORY_ALLOWED=true`；Evidence 与 Memory 使用彼此独立的许可。
+Never mark a remote endpoint as `LLM_LOCAL_ENDPOINT=true`. Enable `LLM_REMOTE_MEMORY_ALLOWED=true` only when personal memory is explicitly allowed to leave the machine; evidence and memory have independent permissions.
 
-Graph extraction 使用独立的 `GRAPH_EXTRACTION_*` 配置与远程 Evidence 许可，不会继承 Chat 的安全开关。
+Graph extraction has separate `GRAPH_EXTRACTION_*` settings and its own remote-evidence permission. It does not inherit Chat's security switches.
 
-### Embedding 与 Reranker
+### Embedding and reranking
 
-`hybrid` Profile 提供固定版本的 Qwen3 Embedding/Reranker 服务，需要 NVIDIA GPU 与容器 GPU 支持：
+The `hybrid` profile provides pinned Qwen3 Embedding/Reranker services and requires an NVIDIA GPU with container GPU support:
 
 ```powershell
 $env:EMBEDDING_ENABLED = "true"
@@ -183,7 +183,7 @@ docker compose --profile hybrid up -d --build
 
 ### GraphRAG
 
-本地图谱抽取 endpoint 示例：
+Local graph-extraction endpoint example:
 
 ```powershell
 $env:GRAPH_EXTRACTION_ENABLED = "true"
@@ -194,20 +194,20 @@ $env:GRAPH_EXTRACTION_LOCAL_ENDPOINT = "true"
 docker compose --profile graph up -d --build
 ```
 
-远程图谱抽取还必须设置 `GRAPH_EXTRACTION_API_KEY`、`GRAPH_EXTRACTION_LOCAL_ENDPOINT=false` 与 `GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED=true`。`graph` Profile 只启动构建 Worker：启用在线 `LOCAL_GRAPH` 前仍需创建 READY Graph 候选并由管理员显式发布；`GLOBAL_GRAPH` 还需基于合规的 `ALL_USERS` 来源独立构建并发布 Global Generation。
+Remote graph extraction also requires `GRAPH_EXTRACTION_API_KEY`, `GRAPH_EXTRACTION_LOCAL_ENDPOINT=false`, and `GRAPH_EXTRACTION_REMOTE_EVIDENCE_ALLOWED=true`. The `graph` profile only starts build workers: before online `LOCAL_GRAPH` can be used, an administrator must build a READY graph candidate and explicitly publish it. `GLOBAL_GRAPH` additionally requires an independently built and published Global Generation based on eligible `ALL_USERS` sources.
 
-Graph/Global 构建遵循 `BUILDING → READY → ACTIVE/RETIRED` 生命周期：
+Graph and global builds follow a `BUILDING → READY → ACTIVE/RETIRED` lifecycle:
 
-1. Generation 冻结当前 READY Revision 与 ACL 版本。
-2. Worker 构建不可变候选；失败或中断不会修改当前 ACTIVE。
-3. 管理员核对闭包后显式发布或回滚。
-4. Revision、ACL、删除或格式变化会把相关投影标为 stale，在线跳过失效来源。
+1. A generation freezes the current READY revisions and ACL versions.
+2. Workers build an immutable candidate; failure or interruption never modifies the current ACTIVE generation.
+3. An administrator explicitly publishes or rolls back after closure checks.
+4. Revision, ACL, deletion, or format changes make affected projections stale; online retrieval skips invalid sources.
 
-默认 Graph 构建安全上限为 1,000 个文档、5,000 个 Parent、2,000 万字符、50,000 个实体和 100,000 条关系。它不是面向任意规模数据集的无限批处理接口。
+Default graph-build safety limits are 1,000 documents, 5,000 Parents, 20 million characters, 50,000 entities, and 100,000 relationships. This is not an unbounded bulk-processing API for arbitrary dataset sizes.
 
 ### MinerU
 
-复杂版式与 OCR 可启用 `mineru` Profile。它与本地模型共享 GPU 资源约束，不应在 8 GB GPU 上与 `hybrid` Profile 同时运行。
+Enable the `mineru` profile for complex layouts and OCR. It shares GPU resource constraints with local model services and should not run together with the `hybrid` profile on an 8 GB GPU.
 
 ```powershell
 $env:MINERU_ENABLED = "true"
@@ -215,55 +215,55 @@ $env:GPU_ACTIVE_PROFILE = "mineru"
 docker compose --profile mineru up -d --build
 ```
 
-仅启动 Profile 不会启用 MinerU Parser；两个开关必须与 Provider 健康状态同时满足。
+Starting the profile alone does not enable the MinerU parser; both switches and a healthy provider are required.
 
-## 评测
+## Evaluation
 
-Evaluation Center 管理不可变的数据集、评测配置、运行与基线。真实 Search/Chat 评测默认关闭；启用后，Run 完成仍不会自动改变线上配置或 Baseline：
+The Evaluation Center manages immutable datasets, evaluation configurations, runs, and baselines. Real Search/Chat evaluation is disabled by default; after enabling it, a completed run still never changes an online configuration or baseline automatically:
 
 ```powershell
 $env:EVALUATION_REAL_ENABLED = "true"
 docker compose up -d --build backend evaluation-worker
 ```
 
-前置条件缺失时 Run 显示 `BLOCKED_PREREQUISITE`，不会写入伪造分数。
+Missing prerequisites produce `BLOCKED_PREREQUISITE`; the system does not write fabricated scores.
 
-HotpotQA v2 本地参考评测覆盖 50 个 Case（25 bridge、25 comparison）和 500 份文档：
+The local HotpotQA v2 reference evaluation covered 50 cases (25 bridge and 25 comparison) across 500 documents:
 
-| 模式 | 双支撑 Revision 完整率 | Evidence Recall | 检索 Case p95 |
+| Mode | Complete supporting-revision coverage | Evidence Recall | Retrieval-case p95 |
 | --- | ---: | ---: | ---: |
 | HYBRID | 84% | 91% | 1,648 ms |
 | LOCAL_GRAPH | 92% | 96% | 1,847 ms |
 
-同一参考评测中的结构化短答案为 EM 62%、F1 72.35%。Citation 解析硬门禁 100% 表示每个已生成引用均通过 ACL、Revision 与 SourceLocator 复核；Gold Revision Citation 覆盖率 72% 表示 72% 的 Case 引用了全部 Gold 支撑 Revision，两者口径不同。Refusal Contract 硬门禁为 100%。
+On the same reference evaluation, structured short-answer EM was 62% and F1 was 72.35%. The 100% citation-resolution hard gate means every generated citation passed ACL, revision, and SourceLocator validation; 72% Gold Revision citation coverage means 72% of cases cited every gold supporting revision. These are different denominators. The refusal-contract hard gate was 100%.
 
 > [!NOTE]
-> 这 50 个 Case 已用于诊断与调优，属于本地参考/验证基线，不是 HotpotQA 官方排行榜结果，也不是未见盲测。表中 p95 是 Evaluation 的 RETRIEVAL/LOCAL_GRAPH Case 耗时，不是端到端 Chat 延迟；硬件与缓存冷热尚未版本化，因此仅作为本机观察值。完整渲染回答包含解释和引用标记，不能用其 token F1 代替结构化短答案准确度。
+> These 50 cases were used for diagnosis and tuning. They are a local reference/validation baseline, not an official HotpotQA leaderboard result or an unseen blind test. The table reports Evaluation RETRIEVAL/LOCAL_GRAPH case duration, not end-to-end Chat latency; hardware and cache warmness were not versioned, so p95 is only a local observation. A rendered answer contains explanations and citation markers, so its token F1 must not be presented as structured short-answer accuracy.
 
-第三方数据集、派生 Golden、导入状态和运行报告均不随仓库发布；本地使用时必须遵守各自的许可证与署名要求。
+Third-party datasets, derived golden files, import state, and run reports are not published with the repository. Local use must follow each source's license and attribution requirements.
 
-## 安全边界
+## Security boundaries
 
-- 发现潜在漏洞时，请按 [安全策略](./SECURITY.md) 使用 GitHub 私密漏洞报告，不要在公开 Issue 中披露细节。
-- PostgreSQL 是 ACL、当前 Revision、Generation 和 Citation 的权威来源；OpenSearch 命中不能单独授权正文。
-- MinIO bucket 保持私有，下载由 Backend 鉴权，不返回公共对象 URL。
-- `/api/v1/admin/**` 仅允许 ADMIN；其余业务 API 要求登录，状态变更请求受 CSRF 保护。
-- 权限复核失败时返回错误而不是绕过；撤权后下一次 Search、Chat、Chunk、Citation 和下载立即按新权限执行。
-- Session 当前保存在 Backend 进程内存中；重启需要重新登录，不适合未经改造直接横向扩容。
-- 默认 Compose 使用示例凭据、HTTP、`SESSION_COOKIE_SECURE=false`，并关闭 OpenSearch Security Plugin。共享或生产环境必须更换 Secrets、启用 TLS/Auth、移除数据库/搜索/Worker 宿主端口，并通过 HTTPS 反向代理设置安全 Cookie。
-- 不要提交 `.env`、数据库备份、模型 Token、运行语料或含用户信息的截图。
+- Report suspected vulnerabilities through GitHub Private Vulnerability Reporting as described in the [security policy](./SECURITY.md); do not disclose details in a public issue.
+- PostgreSQL is authoritative for ACLs, current revisions, generations, and citations. An OpenSearch hit cannot authorize content by itself.
+- The MinIO bucket remains private. Downloads are authorized by the Backend; public object URLs are not returned.
+- `/api/v1/admin/**` requires ADMIN. Other business APIs require authentication, and state-changing requests are protected by CSRF.
+- Authorization-check failures return an error instead of bypassing the guard. Revocation affects the user's next Search, Chat, Chunk, Citation, and download request.
+- Sessions currently live in Backend process memory. A restart requires login again, and horizontal scaling needs additional design work.
+- The default Compose stack uses example credentials, HTTP, `SESSION_COOKIE_SECURE=false`, and a disabled OpenSearch Security Plugin. Shared or production environments must replace secrets, enable TLS/authentication, remove database/search/worker host ports, and set secure cookies behind an HTTPS reverse proxy.
+- Never commit `.env`, database backups, model tokens, runtime corpora, or screenshots containing user information.
 
-## 停止与清理
+## Stop and clean up
 
-停止容器但保留数据：
+Stop containers while preserving data:
 
 ```powershell
 docker compose down
 ```
 
 > [!CAUTION]
-> `docker compose down -v` 会不可恢复地删除 PostgreSQL、MinIO 和 OpenSearch 卷。仅在明确要销毁全部本地数据时使用。
+> `docker compose down -v` irreversibly deletes the PostgreSQL, MinIO, and OpenSearch volumes. Use it only when you intend to destroy all local data.
 
-## 许可证
+## License
 
-Copyright 2026 Ap0lie。项目代码依据 [Apache License 2.0](./LICENSE) 授权。
+Copyright 2026 Ap0lie. Project code is licensed under the [Apache License 2.0](./LICENSE).
