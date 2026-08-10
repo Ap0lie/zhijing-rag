@@ -23,7 +23,7 @@ Zhijing RAG puts document ingestion, hybrid retrieval, Local/Global GraphRAG, gr
 Terminology: a revision is an immutable document version, a Child is a searchable evidence unit, a SourceLocator is a format-native source position, and a generation is an immutable index or graph build.
 
 > [!IMPORTANT]
-> This project is under active development. The included Compose stack targets local development and evaluation; it is not a production template that should be exposed to the public internet unchanged.
+> This project is under active improvement. The included Compose stack targets local single-machine use and evaluation; it is not a production template that should be exposed to the public internet unchanged.
 
 [Capabilities](#capabilities) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Formats](#supported-formats) · [Models](#models-and-optional-capabilities) · [Evaluation](#evaluation) · [Security](#security-boundaries) · [License](#license)
 
@@ -47,7 +47,6 @@ Run these steps after cloning the repository and entering its root directory.
 
 - Docker Desktop or Docker Engine with Compose v2.
 - Basic upload, PDFBox/Office parsing, and BM25 retrieval do not require a GPU or an LLM.
-- Source-level tests additionally need Node.js 22+, Python 3.12+, and local Google Chrome. They are not base runtime requirements.
 
 ### 1. Start the base stack
 
@@ -89,9 +88,9 @@ All default host ports bind to `127.0.0.1` only.
 | --- | --- | --- |
 | Frontend | `127.0.0.1:5173` | React UI; Nginx proxies `/api` on the same origin |
 | Backend | `127.0.0.1:8080` | REST, SSE, and Actuator |
-| PostgreSQL | `127.0.0.1:5432` | Authoritative state; development port |
+| PostgreSQL | `127.0.0.1:5432` | Authoritative state; local-only port |
 | MinIO Console | `127.0.0.1:9001` | Object API `9000` stays inside the container network by default |
-| OpenSearch | `127.0.0.1:9200` | Rebuildable search projections; development port |
+| OpenSearch | `127.0.0.1:9200` | Rebuildable search projections; local-only port |
 | Community Worker | `127.0.0.1:8001` | Internal Python/Leiden worker |
 
 ## Supported formats
@@ -133,7 +132,7 @@ The flow is fixed as `1 route → choose 2A or 2B → 3 answer`. Path 2A is the 
 
 [![Zhijing RAG retrieval and answer paths PNG preview](./docs/assets/retrieval-flow.en.png)](./docs/assets/retrieval-flow.en.svg "Open the high-resolution SVG")
 
-The README displays broadly compatible PNG previews; click an image to open its high-resolution SVG. Sources live in [`docs/diagrams`](./docs/diagrams). Generated files use locked Mermaid CLI, Puppeteer, and Chrome Headless Shell (Chromium) versions and must not be edited by hand.
+The README displays broadly compatible PNG previews; click an image to open its high-resolution SVG.
 
 ## Models and optional capabilities
 
@@ -220,7 +219,7 @@ Starting the profile alone does not enable the MinerU parser; both switches and 
 
 ## Evaluation
 
-The Evaluation Center manages immutable datasets, subjects, runs, and baselines with PostgreSQL leases. Real Search/Chat evaluation is disabled by default; after enabling it, a completed run still never changes an online configuration or baseline automatically:
+The Evaluation Center manages immutable datasets, evaluation configurations, runs, and baselines. Real Search/Chat evaluation is disabled by default; after enabling it, a completed run still never changes an online configuration or baseline automatically:
 
 ```powershell
 $env:EVALUATION_REAL_ENABLED = "true"
@@ -229,63 +228,19 @@ docker compose up -d --build backend evaluation-worker
 
 Missing prerequisites produce `BLOCKED_PREREQUISITE`; the system does not write fabricated scores.
 
-The local HotpotQA v2 development evaluation used the pinned `distractor/validation/hard` revision `1908d6afbbead072334abe2965f91bd2709910ab`, with 50 cases (25 bridge and 25 comparison) across 500 documents. Retrieval used Index Generation 7, and Local Graph used the unpublished READY Graph Generation 8:
+The local HotpotQA v2 reference evaluation covered 50 cases (25 bridge and 25 comparison) across 500 documents:
 
 | Mode | Complete supporting-revision coverage | Evidence Recall | Retrieval-case p95 |
 | --- | ---: | ---: | ---: |
 | HYBRID | 84% | 91% | 1,648 ms |
 | LOCAL_GRAPH | 92% | 96% | 1,847 ms |
 
-On the same development evaluation, structured short-answer EM was 62% and F1 was 72.35%. The 100% citation-resolution hard gate means every generated citation passed ACL, revision, and SourceLocator validation; 72% Gold Revision citation coverage means 72% of cases cited every gold supporting revision. These are different denominators. The refusal-contract hard gate was 100%.
+On the same reference evaluation, structured short-answer EM was 62% and F1 was 72.35%. The 100% citation-resolution hard gate means every generated citation passed ACL, revision, and SourceLocator validation; 72% Gold Revision citation coverage means 72% of cases cited every gold supporting revision. These are different denominators. The refusal-contract hard gate was 100%.
 
 > [!NOTE]
-> These 50 cases were used for diagnosis and tuning. They are a local development/validation baseline, not an official HotpotQA leaderboard result or an unseen blind test. The table reports Evaluation RETRIEVAL/LOCAL_GRAPH case duration, not end-to-end Chat latency; hardware and cache warmness were not versioned, so p95 is only a local observation. A rendered answer contains explanations and citation markers, so its token F1 must not be presented as structured short-answer accuracy.
+> These 50 cases were used for diagnosis and tuning. They are a local reference/validation baseline, not an official HotpotQA leaderboard result or an unseen blind test. The table reports Evaluation RETRIEVAL/LOCAL_GRAPH case duration, not end-to-end Chat latency; hardware and cache warmness were not versioned, so p95 is only a local observation. A rendered answer contains explanations and citation markers, so its token F1 must not be presented as structured short-answer accuracy.
 
-Third-party datasets, derived golden files, import state, and run reports are not committed. Generate them locally under their source licenses with [`tools/build_hotpotqa_golden.py`](./tools/build_hotpotqa_golden.py), then run [`tools/run_hotpotqa_evaluation.py`](./tools/run_hotpotqa_evaluation.py) and [`tools/run_hotpotqa_retrieval_comparison.py`](./tools/run_hotpotqa_retrieval_comparison.py).
-
-## Testing
-
-Backend (Maven tests and JaCoCo gates):
-
-```powershell
-docker compose --profile test run --build --rm --volume "${PWD}\backend\target:/workspace/target" backend-test
-```
-
-Python Community Worker:
-
-```powershell
-docker compose run --build --rm worker pytest -q
-```
-
-Frontend:
-
-```powershell
-Push-Location frontend
-try {
-  npm ci
-  npm run test:coverage
-  npm run build
-} finally {
-  Pop-Location
-}
-```
-
-With the full stack running, execute browser E2E tests:
-
-```powershell
-Push-Location frontend
-try {
-  npm run test:e2e
-} finally {
-  Pop-Location
-}
-```
-
-MinerU contract tests:
-
-```powershell
-python -m unittest discover mineru/tests -v
-```
+Third-party datasets, derived golden files, import state, and run reports are not published with the repository. Local use must follow each source's license and attribution requirements.
 
 ## Security boundaries
 
@@ -295,20 +250,8 @@ python -m unittest discover mineru/tests -v
 - `/api/v1/admin/**` requires ADMIN. Other business APIs require authentication, and state-changing requests are protected by CSRF.
 - Authorization-check failures return an error instead of bypassing the guard. Revocation affects the user's next Search, Chat, Chunk, Citation, and download request.
 - Sessions currently live in Backend process memory. A restart requires login again, and horizontal scaling needs additional design work.
-- The default Compose stack uses development credentials, HTTP, `SESSION_COOKIE_SECURE=false`, and a disabled OpenSearch Security Plugin. Shared or production environments must replace secrets, enable TLS/authentication, remove database/search/worker host ports, and set secure cookies behind an HTTPS reverse proxy.
+- The default Compose stack uses example credentials, HTTP, `SESSION_COOKIE_SECURE=false`, and a disabled OpenSearch Security Plugin. Shared or production environments must replace secrets, enable TLS/authentication, remove database/search/worker host ports, and set secure cookies behind an HTTPS reverse proxy.
 - Never commit `.env`, database backups, model tokens, runtime corpora, or screenshots containing user information.
-
-## Repository layout
-
-```text
-backend/    Spring Boot API, domain services, Flyway, Java workers, and tests
-frontend/   React SPA, Nginx configuration, Vitest, and Playwright
-worker/     Python Community Worker and Leiden graph algorithms
-mineru/     Optional MinerU provider and contract tests
-tools/      Third-party dataset builders, importers, and evaluation runners
-data/       Local-only data, derived corpora, run reports, and backups; the entire directory is ignored
-compose.yaml
-```
 
 ## Stop and clean up
 
@@ -321,16 +264,6 @@ docker compose down
 > [!CAUTION]
 > `docker compose down -v` irreversibly deletes the PostgreSQL, MinIO, and OpenSearch volumes. Use it only when you intend to destroy all local data.
 
-## Before publishing
-
-- Project code is licensed under the [Apache License 2.0](./LICENSE); third-party components and datasets remain subject to their respective licenses.
-- HotpotQA, CRUD_RAG, and other third-party datasets or derivatives are not committed; local use still follows each source's license and attribution requirements.
-- Rotate credentials used locally and inspect Git history, backups, evaluation corpora, and screenshots before making the repository public.
-
 ## License
 
 Copyright 2026 Ap0lie. Project code is licensed under the [Apache License 2.0](./LICENSE).
-
----
-
-When evaluating or extending the project, start with the basic BM25 document lifecycle, then enable Embedding/Reranker, graph extraction, and Global GraphRAG in that order. Freeze versions and record a baseline in the Evaluation Center at every step.

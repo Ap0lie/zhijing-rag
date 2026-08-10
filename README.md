@@ -23,7 +23,7 @@
 术语约定：Revision 是不可变文档版本，Child 是可检索证据单元，SourceLocator 是格式原生的来源位置，Generation 是不可变的索引或图构建版本。
 
 > [!IMPORTANT]
-> 项目仍在持续开发。仓库中的 Compose 面向单机开发与评测，不是可以原样暴露到公网的生产部署模板。
+> 项目仍在持续完善。仓库中的 Compose 面向本地单机运行与评测，不是可以原样暴露到公网的生产部署模板。
 
 [核心能力](#核心能力) · [快速开始](#快速开始) · [架构](#架构) · [支持格式](#支持格式) · [模型与可选能力](#模型与可选能力) · [评测](#评测) · [安全边界](#安全边界) · [许可证](#许可证)
 
@@ -47,7 +47,6 @@
 
 - Docker Desktop 或 Docker Engine，支持 Compose v2。
 - 基础文档上传、PDFBox/Office 解析和 BM25 检索不要求 GPU 或 LLM。
-- 源码测试另需 Node.js 22+、Python 3.12+ 和本机 Google Chrome；它们不是基础启动条件。
 
 ### 1. 启动基础服务
 
@@ -89,9 +88,9 @@ docker compose ps
 | --- | --- | --- |
 | Frontend | `127.0.0.1:5173` | React UI；Nginx 同源代理 `/api` |
 | Backend | `127.0.0.1:8080` | REST、SSE、Actuator |
-| PostgreSQL | `127.0.0.1:5432` | 权威事实库；开发端口 |
+| PostgreSQL | `127.0.0.1:5432` | 权威事实库；仅本机端口 |
 | MinIO Console | `127.0.0.1:9001` | 对象 API `9000` 默认只在容器网络内 |
-| OpenSearch | `127.0.0.1:9200` | 可重建检索投影；开发端口 |
+| OpenSearch | `127.0.0.1:9200` | 可重建检索投影；仅本机端口 |
 | Community Worker | `127.0.0.1:8001` | Python/Leiden 内部 Worker |
 
 ## 支持格式
@@ -133,7 +132,7 @@ Graph 节点、关系和 Community Report 本身不能成为 Citation；用户�
 
 [![知境 RAG 检索与回答流程 PNG 预览](./docs/assets/retrieval-flow.zh-CN.png)](./docs/assets/retrieval-flow.zh-CN.svg "点击查看 SVG 高清版本")
 
-README 显示兼容性更好的 PNG，点击图片可查看 SVG 高清版本。图源位于 [`docs/diagrams`](./docs/diagrams)，使用锁定的 Mermaid CLI、Puppeteer 和 Chrome Headless Shell（Chromium）生成；不要手工编辑生成文件。
+README 显示兼容性更好的 PNG，点击图片可查看 SVG 高清版本。
 
 ## 模型与可选能力
 
@@ -220,7 +219,7 @@ docker compose --profile mineru up -d --build
 
 ## 评测
 
-Evaluation Center 管理不可变 Dataset/Subject/Run/Baseline，并使用 PostgreSQL 租约调度。真实 Search/Chat 评测默认关闭；启用后，Run 完成仍不会自动改变线上配置或 Baseline：
+Evaluation Center 管理不可变的数据集、评测配置、运行与基线。真实 Search/Chat 评测默认关闭；启用后，Run 完成仍不会自动改变线上配置或 Baseline：
 
 ```powershell
 $env:EVALUATION_REAL_ENABLED = "true"
@@ -229,63 +228,19 @@ docker compose up -d --build backend evaluation-worker
 
 前置条件缺失时 Run 显示 `BLOCKED_PREREQUISITE`，不会写入伪造分数。
 
-HotpotQA v2 本地开发评测使用固定 revision `1908d6afbbead072334abe2965f91bd2709910ab` 的 `distractor/validation/hard`，包含 50 个 Case（25 bridge、25 comparison）和 500 份文档；检索使用 Index Generation 7，Local Graph 使用未发布的 READY Graph Generation 8：
+HotpotQA v2 本地参考评测覆盖 50 个 Case（25 bridge、25 comparison）和 500 份文档：
 
 | 模式 | 双支撑 Revision 完整率 | Evidence Recall | 检索 Case p95 |
 | --- | ---: | ---: | ---: |
 | HYBRID | 84% | 91% | 1,648 ms |
 | LOCAL_GRAPH | 92% | 96% | 1,847 ms |
 
-同一开发评测中的结构化短答案为 EM 62%、F1 72.35%。Citation 解析硬门禁 100% 表示每个已生成引用均通过 ACL、Revision 与 SourceLocator 复核；Gold Revision Citation 覆盖率 72% 表示 72% 的 Case 引用了全部 Gold 支撑 Revision，两者口径不同。Refusal Contract 硬门禁为 100%。
+同一参考评测中的结构化短答案为 EM 62%、F1 72.35%。Citation 解析硬门禁 100% 表示每个已生成引用均通过 ACL、Revision 与 SourceLocator 复核；Gold Revision Citation 覆盖率 72% 表示 72% 的 Case 引用了全部 Gold 支撑 Revision，两者口径不同。Refusal Contract 硬门禁为 100%。
 
 > [!NOTE]
-> 这 50 个 Case 已用于诊断与调优，属于本地开发/验证基线，不是 HotpotQA 官方排行榜结果，也不是未见盲测。表中 p95 是 Evaluation 的 RETRIEVAL/LOCAL_GRAPH Case 耗时，不是端到端 Chat 延迟；硬件与缓存冷热尚未版本化，因此仅作为本机观察值。完整渲染回答包含解释和引用标记，不能用其 token F1 代替结构化短答案准确度。
+> 这 50 个 Case 已用于诊断与调优，属于本地参考/验证基线，不是 HotpotQA 官方排行榜结果，也不是未见盲测。表中 p95 是 Evaluation 的 RETRIEVAL/LOCAL_GRAPH Case 耗时，不是端到端 Chat 延迟；硬件与缓存冷热尚未版本化，因此仅作为本机观察值。完整渲染回答包含解释和引用标记，不能用其 token F1 代替结构化短答案准确度。
 
-第三方数据集、派生 Golden、导入状态和运行报告均不随仓库提交。请在遵守来源许可证的前提下使用 [`tools/build_hotpotqa_golden.py`](./tools/build_hotpotqa_golden.py) 本地生成，再通过 [`tools/run_hotpotqa_evaluation.py`](./tools/run_hotpotqa_evaluation.py) 与 [`tools/run_hotpotqa_retrieval_comparison.py`](./tools/run_hotpotqa_retrieval_comparison.py) 执行。
-
-## 测试
-
-Backend（Maven 测试与 JaCoCo 门禁）：
-
-```powershell
-docker compose --profile test run --build --rm --volume "${PWD}\backend\target:/workspace/target" backend-test
-```
-
-Python Community Worker：
-
-```powershell
-docker compose run --build --rm worker pytest -q
-```
-
-Frontend：
-
-```powershell
-Push-Location frontend
-try {
-  npm ci
-  npm run test:coverage
-  npm run build
-} finally {
-  Pop-Location
-}
-```
-
-启动完整 Stack 后可运行浏览器 E2E：
-
-```powershell
-Push-Location frontend
-try {
-  npm run test:e2e
-} finally {
-  Pop-Location
-}
-```
-
-MinerU contract tests：
-
-```powershell
-python -m unittest discover mineru/tests -v
-```
+第三方数据集、派生 Golden、导入状态和运行报告均不随仓库发布；本地使用时必须遵守各自的许可证与署名要求。
 
 ## 安全边界
 
@@ -295,20 +250,8 @@ python -m unittest discover mineru/tests -v
 - `/api/v1/admin/**` 仅允许 ADMIN；其余业务 API 要求登录，状态变更请求受 CSRF 保护。
 - 权限复核失败时返回错误而不是绕过；撤权后下一次 Search、Chat、Chunk、Citation 和下载立即按新权限执行。
 - Session 当前保存在 Backend 进程内存中；重启需要重新登录，不适合未经改造直接横向扩容。
-- 默认 Compose 使用开发凭据、HTTP、`SESSION_COOKIE_SECURE=false`，并关闭 OpenSearch Security Plugin。共享或生产环境必须更换 Secrets、启用 TLS/Auth、移除数据库/搜索/Worker 宿主端口，并通过 HTTPS 反向代理设置安全 Cookie。
+- 默认 Compose 使用示例凭据、HTTP、`SESSION_COOKIE_SECURE=false`，并关闭 OpenSearch Security Plugin。共享或生产环境必须更换 Secrets、启用 TLS/Auth、移除数据库/搜索/Worker 宿主端口，并通过 HTTPS 反向代理设置安全 Cookie。
 - 不要提交 `.env`、数据库备份、模型 Token、运行语料或含用户信息的截图。
-
-## 仓库结构
-
-```text
-backend/    Spring Boot API、领域服务、Flyway、Java Workers 与测试
-frontend/   React SPA、Nginx 配置、Vitest 与 Playwright
-worker/     Python Community Worker 与 Leiden 图算法
-mineru/     可选 MinerU Provider 与 contract tests
-tools/      第三方数据集构建、导入与评测工具
-data/       仅本地数据、派生语料、运行报告与备份；整个目录不提交
-compose.yaml
-```
 
 ## 停止与清理
 
@@ -321,16 +264,6 @@ docker compose down
 > [!CAUTION]
 > `docker compose down -v` 会不可恢复地删除 PostgreSQL、MinIO 和 OpenSearch 卷。仅在明确要销毁全部本地数据时使用。
 
-## 公开发布前
-
-- 项目代码使用 [Apache License 2.0](./LICENSE)；第三方组件与数据仍适用各自的许可证。
-- HotpotQA、CRUD_RAG 等第三方数据集及其派生物不随仓库提交；本地使用仍须遵守各自许可证和署名要求。
-- 公开仓库前应轮换曾在本地使用的密钥，并检查 Git 历史、备份、评测语料和截图。
-
 ## 许可证
 
 Copyright 2026 Ap0lie。项目代码依据 [Apache License 2.0](./LICENSE) 授权。
-
----
-
-如果你正在评估或扩展该项目，建议先从基础 BM25 文档闭环开始，再按顺序启用 Embedding/Reranker、Graph extraction 与 Global GraphRAG；每一步都使用 Evaluation Center 固定版本和记录基线。
