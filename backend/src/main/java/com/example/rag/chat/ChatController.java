@@ -8,6 +8,7 @@ import com.example.rag.chat.ChatApiContracts.SessionListResponse;
 import com.example.rag.chat.ChatApiContracts.SessionSummary;
 import com.example.rag.chat.ChatApiContracts.StartRunRequest;
 import com.example.rag.chat.ChatApiContracts.MemorySuggestionStatusResponse;
+import com.example.rag.chat.ChatApiContracts.ContextStatusResponse;
 import com.example.rag.chat.ChatService.OpenChatRun;
 import com.example.rag.memory.MemoryPackService.RunMemoryUsageView;
 import com.example.rag.security.PlatformUserPrincipal;
@@ -84,6 +85,22 @@ class ChatController {
             @AuthenticationPrincipal PlatformUserPrincipal user
     ) {
         return chat.memorySuggestions(sessionId, user);
+    }
+
+    @PostMapping("/sessions/{sessionId}/context/prepare")
+    ContextStatusResponse prepareContext(
+            @PathVariable UUID sessionId,
+            @AuthenticationPrincipal PlatformUserPrincipal user
+    ) {
+        return chat.prepareContext(sessionId, user);
+    }
+
+    @GetMapping("/sessions/{sessionId}/context")
+    ContextStatusResponse context(
+            @PathVariable UUID sessionId,
+            @AuthenticationPrincipal PlatformUserPrincipal user
+    ) {
+        return chat.context(sessionId, user);
     }
 
     @DeleteMapping("/sessions/{sessionId}")

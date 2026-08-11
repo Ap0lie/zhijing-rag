@@ -88,6 +88,20 @@ public final class ChatApiContracts {
     ) {
     }
 
+    public record ContextStatusResponse(
+            String status,
+            String policyVersion,
+            int coveredMessageCount,
+            int tailMessageCount,
+            int summaryTokenCount,
+            int finalHistoryTokenCount,
+            int estimatedSavedTokens,
+            double compressionRatio,
+            Instant updatedAt,
+            String reasonCode
+    ) {
+    }
+
     public record RunView(
             UUID id,
             String status,
@@ -109,6 +123,12 @@ public final class ChatApiContracts {
             String historyCounterVersion,
             int historyTokenCount,
             List<String> historyTrimReasons,
+            String contextCompressionPolicyVersion,
+            UUID historySummaryId,
+            int historySummaryTokenCount,
+            int historySummarySourceCount,
+            String contextCompressionStatus,
+            String contextCompressionReasonCode,
             int memoryUsedCount,
             int memoryTokenCount,
             String memoryDegradationCode,
@@ -307,6 +327,12 @@ public final class ChatApiContracts {
     public record MemoryUsedEvent(
             UUID runId,
             List<MemoryUsedSummary> memories
+    ) {
+    }
+
+    public record ContextUsedEvent(
+            UUID runId,
+            ContextStatusResponse context
     ) {
     }
 

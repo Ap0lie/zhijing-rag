@@ -140,6 +140,69 @@ class AdminOverviewService {
                 "/admin/evaluations?tab=feedback"
         ), capturedAt);
 
+        collect(attention, "CONTEXT_COMPRESSION_STATUS_UNAVAILABLE", "/admin", () -> {
+            addCount(
+                    attention,
+                    "CONTEXT_COMPRESSION_BACKLOG",
+                    "会话上下文压缩积压",
+                    "后台摘要任务正在等待或执行；不会阻塞用户当前回答。",
+                    count(
+                            """
+                            SELECT COUNT(*), MAX(updated_at)
+                            FROM chat_context_summary_jobs
+                            WHERE status IN ('PENDING', 'RUNNING')
+                            """
+                    ),
+                    "WARNING", "BLOCKED",
+                    "CONTEXT_COMPRESSION_BACKLOG", "/admin"
+            );
+            addCount(
+                    attention,
+                    "CONTEXT_COMPRESSION_FAILED",
+                    "会话上下文压缩失败",
+                    "摘要任务已耗尽自动尝试，用户问答已安全回退。",
+                    count(
+                            """
+                            SELECT COUNT(*), MAX(updated_at)
+                            FROM chat_context_summary_jobs
+                            WHERE status = 'FAILED'
+                            """
+                    ),
+                    "ERROR", "ERROR",
+                    "CONTEXT_COMPRESSION_FAILED", "/admin"
+            );
+            addCount(
+                    attention,
+                    "CONTEXT_REMOTE_BLOCKED",
+                    "远程会话上下文已阻断",
+                    "远程许可或敏感信息检查阻止了会话历史外发。",
+                    count(
+                            """
+                            SELECT COUNT(*), MAX(updated_at)
+                            FROM chat_runs
+                            WHERE context_compression_status = 'REMOTE_BLOCKED'
+                            """
+                    ),
+                    "INFO", "BLOCKED",
+                    "CONTEXT_REMOTE_BLOCKED", "/admin"
+            );
+            addCount(
+                    attention,
+                    "PROMPT_BUDGET_EXHAUSTED",
+                    "模型上下文预算溢出",
+                    "系统提示、问题与核心证据无法同时装入模型窗口。",
+                    count(
+                            """
+                            SELECT COUNT(*), MAX(updated_at)
+                            FROM chat_runs
+                            WHERE error_code = 'EVIDENCE_CONTEXT_BUDGET_EXHAUSTED'
+                            """
+                    ),
+                    "ERROR", "ERROR",
+                    "PROMPT_BUDGET_EXHAUSTED", "/admin"
+            );
+        }, capturedAt);
+
         return new AdminOverviewResponse(
                 "admin-overview-v1",
                 capturedAt,

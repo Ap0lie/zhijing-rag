@@ -55,6 +55,8 @@ class ChatPersistenceIntegrationTests {
                 session.id(),
                 new StartRunCommand("What is grounded RAG?", "en", "phase7b-v1", "trace-" + UUID.randomUUID())
         ).orElseThrow();
+        assertThat(started.run().contextCompressionPolicyVersion())
+                .isEqualTo(ContextCompressionService.POLICY_VERSION);
         UUID citationId = UUID.randomUUID();
         repository.saveCitationWhitelist(
                 ownerId,
@@ -85,6 +87,49 @@ class ChatPersistenceIntegrationTests {
         assertThat(repository.deleteSession(otherUserId, session.id())).isFalse();
         assertThat(repository.deleteSession(ownerId, session.id())).isTrue();
         assertThat(repository.findRun(ownerId, started.run().id())).isEmpty();
+    }
+
+    @Test
+    void boundedHistoryWindowReadsOldestMessagesForRollingCompression() {
+        var session = repository.createSession(ownerId, "Rolling history");
+        for (int index = 1; index <= 3; index++) {
+            var started = repository.startRun(
+                    ownerId,
+                    session.id(),
+                    new StartRunCommand(
+                            "Question " + index,
+                            "en",
+                            "phase22-v1",
+                            "trace-" + UUID.randomUUID()
+                    )
+            ).orElseThrow();
+            assertThat(repository.finishRun(
+                    ownerId,
+                    started.run().id(),
+                    new RunCompletion(
+                            RunStatus.REFUSED,
+                            "No grounded answer " + index,
+                            "en",
+                            null,
+                            "{}",
+                            "BM25",
+                            null,
+                            null,
+                            "[]",
+                            "[]",
+                            "[]"
+                    )
+            )).isTrue();
+        }
+
+        assertThat(repository.historyWindow(
+                ownerId, session.id(), 0, Integer.MAX_VALUE, 2
+        )).extracting(entry -> entry.message().content())
+                .containsExactly("Question 1", "No grounded answer 1");
+        assertThat(repository.recentHistory(
+                ownerId, session.id(), Integer.MAX_VALUE, 2
+        )).extracting(entry -> entry.message().content())
+                .containsExactly("Question 3", "No grounded answer 3");
     }
 
     @Test

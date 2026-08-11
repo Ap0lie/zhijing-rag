@@ -2404,7 +2404,8 @@ public class SearchService {
                 childTokens,
                 material == null ? null : material.parent(),
                 candidate.graphPathViews(),
-                candidate.globalClaimViews()
+                candidate.globalClaimViews(),
+                candidate.querySlots()
         );
     }
 
@@ -3418,6 +3419,12 @@ public class SearchService {
         boolean matchesQuery(String queryKey) {
             return bm25Ranks.containsKey(queryKey)
                     || vectorRanks.containsKey(queryKey);
+        }
+
+        List<String> querySlots() {
+            Set<String> keys = new LinkedHashSet<>(bm25Ranks.keySet());
+            keys.addAll(vectorRanks.keySet());
+            return List.copyOf(keys);
         }
 
         int rankFor(String queryKey) {

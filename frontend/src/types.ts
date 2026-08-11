@@ -1527,6 +1527,12 @@ export interface ChatRunSummary {
   historyCounterVersion?: string | null;
   historyTokenCount?: number;
   historyTrimReasons?: string[];
+  contextCompressionPolicyVersion?: string | null;
+  historySummaryId?: string | null;
+  historySummaryTokenCount?: number;
+  historySummarySourceCount?: number;
+  contextCompressionStatus?: ChatContextStatus | null;
+  contextCompressionReasonCode?: string | null;
   memoryUsedCount?: number;
   memoryTokenCount?: number;
   memoryDegradationCode?: string | null;
@@ -1577,6 +1583,28 @@ export interface ChatMemorySuggestionStatusResponse {
     errorCode: string | null;
   }>;
   pending: boolean;
+}
+
+export type ChatContextStatus =
+  | "NOT_NEEDED"
+  | "PENDING"
+  | "USED"
+  | "FALLBACK"
+  | "STALE"
+  | "REMOTE_BLOCKED"
+  | "FAILED";
+
+export interface ChatContextStatusResponse {
+  status: ChatContextStatus;
+  policyVersion: string;
+  coveredMessageCount: number;
+  tailMessageCount: number;
+  summaryTokenCount: number;
+  finalHistoryTokenCount: number;
+  estimatedSavedTokens: number;
+  compressionRatio: number;
+  updatedAt: string | null;
+  reasonCode: string | null;
 }
 
 export interface ChatCitationDetail extends ChatCitationSummary {

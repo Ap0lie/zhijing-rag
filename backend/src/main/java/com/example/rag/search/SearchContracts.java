@@ -2,6 +2,7 @@ package com.example.rag.search;
 
 import com.example.rag.document.SourceLocatorResponse;
 import com.example.rag.persistence.DocumentVisibility;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -288,7 +289,8 @@ public final class SearchContracts {
             int childTokenCount,
             ParentContext parent,
             List<GraphPathView> graphPaths,
-            List<GlobalClaimView> globalClaims
+            List<GlobalClaimView> globalClaims,
+            @JsonIgnore List<String> querySlots
     ) {
         public EvidenceContext(
                 int rank,
@@ -300,7 +302,7 @@ public final class SearchContracts {
         ) {
             this(
                     rank, retrievalScore, rerankScore, childText,
-                    childTokenCount, parent, List.of(), List.of()
+                    childTokenCount, parent, List.of(), List.of(), List.of()
             );
         }
 
@@ -315,7 +317,24 @@ public final class SearchContracts {
         ) {
             this(
                     rank, retrievalScore, rerankScore, childText,
-                    childTokenCount, parent, graphPaths, List.of()
+                    childTokenCount, parent, graphPaths, List.of(), List.of()
+            );
+        }
+
+        public EvidenceContext(
+                int rank,
+                double retrievalScore,
+                Double rerankScore,
+                String childText,
+                int childTokenCount,
+                ParentContext parent,
+                List<GraphPathView> graphPaths,
+                List<GlobalClaimView> globalClaims
+        ) {
+            this(
+                    rank, retrievalScore, rerankScore, childText,
+                    childTokenCount, parent, graphPaths, globalClaims,
+                    List.of()
             );
         }
     }

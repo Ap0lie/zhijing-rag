@@ -24,6 +24,7 @@ import type {
   ChatFailedEvent,
   ChatMemoryUsedEvent,
   ChatMemorySuggestionStatusResponse,
+  ChatContextStatusResponse,
   ChatMessage,
   ChatRunMemoryUsage,
   ChatRunSummary,
@@ -582,7 +583,12 @@ function MessageCard({
               )}
             </p>
           ) : null}
-          {run.queryProfileVersion ? (
+          {run.contextCompressionStatus === "USED" ? (
+            <p className="chat-message-state">
+              已压缩 {run.historySummarySourceCount ?? 0} 条较早消息，保留 {run.historyMessageIds?.length ?? 0} 条近期原文。
+            </p>
+          ) : null}
+          {run.queryProfileVersion || run.contextCompressionPolicyVersion ? (
             <p className="chat-message-state">
               参考了 {run.historyMessageIds?.length ?? 0} 条安全历史消息，使用 {run.historyTokenCount ?? 0} Token
               {(run.historyTrimReasons?.length ?? 0) > 0
@@ -623,6 +629,10 @@ function MessageCard({
               <div><dt>回答策略</dt><dd><code>{run.answerStrategyUsed ?? run.answerStrategyRequested ?? "STANDARD"}</code></dd></div>
               <div><dt>Map / Reduce</dt><dd>{run.mapCallCount ?? 0} / {run.reduceCallCount ?? 0}</dd></div>
               <div><dt>历史计数器</dt><dd><code>{run.historyCounterVersion ?? "NONE"}</code></dd></div>
+              <div><dt>上下文策略</dt><dd><code>{run.contextCompressionPolicyVersion ?? "OFF"}</code></dd></div>
+              <div><dt>压缩状态</dt><dd><code>{run.contextCompressionStatus ?? "NOT_NEEDED"}</code></dd></div>
+              <div><dt>摘要 Artifact</dt><dd><code>{run.historySummaryId ?? "NONE"}</code></dd></div>
+              <div><dt>压缩原因</dt><dd><code>{run.contextCompressionReasonCode ?? "NONE"}</code></dd></div>
             </dl>
           </details>
         </details>
@@ -1050,6 +1060,8 @@ export function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ChatSessionDetail | null>(null);
   const [detailState, setDetailState] = useState<LoadState>("ready");
+  const [contextStatus, setContextStatus] =
+    useState<ChatContextStatusResponse | null>(null);
   const [question, setQuestion] = useState("");
   const [graphMode, setGraphMode] = useState<GraphMode>("AUTO");
   const [answerStrategy, setAnswerStrategy] =
@@ -1129,6 +1141,40 @@ export function ChatPage() {
       });
     return () => controller.abort();
   }, [activeSessionId, handleApiError]);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      setContextStatus(null);
+      return;
+    }
+    const controller = new AbortController();
+    let timer: number | undefined;
+    const load = async (prepare: boolean) => {
+      try {
+        const result = await apiRequest<ChatContextStatusResponse>(
+          `/api/v1/chat/sessions/${activeSessionId}/context${prepare ? "/prepare" : ""}`,
+          { method: prepare ? "POST" : "GET", signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        setContextStatus(result);
+        if (result.status === "PENDING") {
+          timer = window.setTimeout(() => void load(false), 2000);
+        }
+      } catch (caught) {
+        if (controller.signal.aborted) return;
+        if (caught instanceof ApiError && caught.status === 401) {
+          expireSession();
+        }
+        setContextStatus(null);
+      }
+    };
+    setContextStatus(null);
+    void load(true);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [activeSessionId, expireSession]);
 
   const hasPendingSuggestions = detail?.messages.some((message) =>
     message.memorySuggestionStatus === "PENDING"
@@ -1677,6 +1723,20 @@ export function ChatPage() {
           </div>
         ) : (
           <>
+            {contextStatus && contextStatus.status !== "NOT_NEEDED" ? (
+              <div
+                className={`chat-context-status ${contextStatus.status.toLowerCase()}`}
+                role="status"
+              >
+                {contextStatus.status === "USED"
+                  ? `已压缩 ${contextStatus.coveredMessageCount} 条较早消息，保留 ${contextStatus.tailMessageCount} 条近期原文，预计减少 ${Math.round(contextStatus.compressionRatio * 100)}% 上下文。`
+                  : contextStatus.status === "PENDING"
+                    ? "正在后台整理较早对话；本次仍使用安全历史裁剪，不会等待摘要。"
+                    : contextStatus.status === "REMOTE_BLOCKED"
+                      ? "远程模型未获会话上下文许可，本次不会发送历史对话。"
+                      : "较早对话暂未压缩，本次已安全回退为历史裁剪。"}
+              </div>
+            ) : null}
             <div className="chat-transcript" aria-live="polite">
               {detailState === "loading" ? (
                 <div className="chat-empty compact"><span className="spinner" aria-hidden="true" /><p>加载会话内容</p></div>

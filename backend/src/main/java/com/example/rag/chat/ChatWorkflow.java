@@ -15,6 +15,7 @@ import com.example.rag.chat.ChatModelProvider.ModelMemory;
 import com.example.rag.chat.ChatModelProvider.GraphEvidence;
 import com.example.rag.chat.ChatModelProvider.ModelSegment;
 import com.example.rag.chat.ChatHistoryWindowService.HistoryWindow;
+import com.example.rag.chat.PromptContextPlanner.PromptPlan;
 import com.example.rag.chat.ChatPersistenceContracts.Citation;
 import com.example.rag.chat.ChatPersistenceContracts.CitationDraft;
 import com.example.rag.chat.ChatPersistenceContracts.AnswerStrategy;
@@ -49,9 +50,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -88,6 +91,7 @@ class ChatWorkflow {
     private static final String MEMORY = "memory";
     private static final String RETRIEVAL = "retrieval";
     private static final String EVIDENCE = "evidence";
+    private static final String PROMPT_PLAN = "promptPlan";
     private static final String MODEL_ANSWER = "modelAnswer";
     private static final String ANSWER_EXECUTION = "answerExecution";
     private static final String VALIDATED = "validated";
@@ -101,11 +105,48 @@ class ChatWorkflow {
     private final QueryIntelligenceProfileService queryProfiles;
     private final QueryRoutingService queryRouting;
     private final MemoryPackService memories;
+    private final PromptContextPlanner promptPlanner;
+    private final ContextCompressionService compression;
+    private final TransactionTemplate transactions;
     private final ChatProperties properties;
     private final ChatUserGuard userGuard;
     private final ObjectMapper objectMapper;
     private final CompiledGraph graph;
     private final Map<UUID, RunInput> executions = new ConcurrentHashMap<>();
+
+    @Autowired
+    ChatWorkflow(
+            SearchService search,
+            ChunkContextService chunks,
+            ChatModelProvider model,
+            ChatPersistenceRepository repository,
+            ChatHistoryWindowService historyWindows,
+            QueryIntelligenceProfileService queryProfiles,
+            QueryRoutingService queryRouting,
+            MemoryPackService memories,
+            PromptContextPlanner promptPlanner,
+            ContextCompressionService compression,
+            TransactionTemplate transactions,
+            ChatProperties properties,
+            ChatUserGuard userGuard,
+            ObjectMapper objectMapper
+    ) throws GraphStateException {
+        this.search = search;
+        this.chunks = chunks;
+        this.model = model;
+        this.repository = repository;
+        this.historyWindows = historyWindows;
+        this.queryProfiles = queryProfiles;
+        this.queryRouting = queryRouting;
+        this.memories = memories;
+        this.promptPlanner = promptPlanner;
+        this.compression = compression;
+        this.transactions = transactions;
+        this.properties = properties;
+        this.userGuard = userGuard;
+        this.objectMapper = objectMapper;
+        this.graph = buildGraph();
+    }
 
     ChatWorkflow(
             SearchService search,
@@ -120,18 +161,13 @@ class ChatWorkflow {
             ChatUserGuard userGuard,
             ObjectMapper objectMapper
     ) throws GraphStateException {
-        this.search = search;
-        this.chunks = chunks;
-        this.model = model;
-        this.repository = repository;
-        this.historyWindows = historyWindows;
-        this.queryProfiles = queryProfiles;
-        this.queryRouting = queryRouting;
-        this.memories = memories;
-        this.properties = properties;
-        this.userGuard = userGuard;
-        this.objectMapper = objectMapper;
-        this.graph = buildGraph();
+        this(
+                search, chunks, model, repository, historyWindows,
+                queryProfiles, queryRouting, memories,
+                new PromptContextPlanner(model, properties, objectMapper),
+                null, null,
+                properties, userGuard, objectMapper
+        );
     }
 
     PersistedOutcome execute(RunInput input) {
@@ -254,6 +290,9 @@ class ChatWorkflow {
                 .addNode("recall_memory", node_async(this::recallMemory))
                 .addNode("retrieve", node_async(this::retrieve))
                 .addNode("validate_evidence", node_async(this::validateEvidence))
+                .addNode("plan_prompt_context", node_async(
+                        this::planPromptContext
+                ))
                 .addNode("generate", node_async(this::generate))
                 .addNode("refuse", node_async(this::refuse))
                 .addNode("validate_citations", node_async(this::validateCitations))
@@ -267,9 +306,13 @@ class ChatWorkflow {
                 .addConditionalEdges(
                         "validate_evidence",
                         edge_async(state -> evidence(state).isEmpty()
-                                ? "refuse" : "generate"),
-                        Map.of("generate", "generate", "refuse", "refuse")
+                                ? "refuse" : "plan_prompt_context"),
+                        Map.of(
+                                "plan_prompt_context", "plan_prompt_context",
+                                "refuse", "refuse"
+                        )
                 )
+                .addEdge("plan_prompt_context", "generate")
                 .addEdge("generate", "validate_citations")
                 .addEdge("refuse", "validate_citations")
                 .addEdge("validate_citations", "persist")
@@ -318,10 +361,47 @@ class ChatWorkflow {
             GraphMode requested = graphMode(
                     input.started().run().graphModeRequested()
             );
+            HistoryWindow history = history(state);
+            String standalone = input.question();
+            int rewriteCalls = 0;
+            boolean degraded = false;
+            String degradationCode = null;
+            if (!history.messages().isEmpty()) {
+                PromptContextPlanner.RewritePlan rewrite =
+                        promptPlanner.planRewrite(
+                                input.user().id(),
+                                input.started().run().sessionId(),
+                                input.started().run().id(),
+                                input.question(), history
+                        );
+                if (rewrite.callModel()) {
+                    rewriteCalls = 1;
+                    try {
+                        standalone = model.rewriteWithContext(
+                                input.question(), rewrite.history()
+                        );
+                    } catch (RuntimeException exception) {
+                        standalone = input.question();
+                        degraded = true;
+                        degradationCode = "CONTEXT_REWRITE_FAILED";
+                    }
+                } else {
+                    degraded = true;
+                    degradationCode = rewrite.reasonCode();
+                }
+            }
             return Map.of(
                     QUERY_PLAN,
                     new PlannedQuery(
-                            QueryPlan.single(input.question()),
+                            new QueryPlan(
+                                    standalone,
+                                    List.of(standalone),
+                                    rewriteCalls,
+                                    degraded,
+                                    degradationCode,
+                                    null,
+                                    null
+                            ),
                             defaultRouting(requested),
                             null,
                             null
@@ -559,18 +639,12 @@ class ChatWorkflow {
                     "评测请求注入了模型超时"
             );
         }
-        List<ModelEvidence> modelEvidence = evidence(state).stream()
-                .map(EvidenceItem::modelEvidence)
-                .toList();
-        List<ModelMemory> modelMemories = memory(state).injected().stream()
-                .map(item -> new ModelMemory(
-                        item.memoryId(),
-                        item.memoryType(),
-                        item.memoryKey(),
-                        item.content()
-                ))
-                .toList();
-        HistoryWindow history = history(state);
+        PromptPlan promptPlan = promptPlan(state);
+        List<ModelEvidence> modelEvidence =
+                promptPlan.prompt().evidence();
+        List<ModelMemory> modelMemories = promptPlan.prompt().memories();
+        List<ChatModelProvider.ModelHistoryMessage> modelHistory =
+                promptPlan.prompt().history();
         AnswerStrategy requested = answerStrategy(
                 input.started().run().answerStrategyRequested()
         );
@@ -580,16 +654,24 @@ class ChatWorkflow {
                 && GraphMode.GLOBAL_GRAPH.name().equals(page.graphModeUsed())) {
             execution = DeepGlobalAnswerGenerator.answer(
                     model,
-                    input.question(),
-                    modelEvidence,
-                    history.messages(),
-                    modelMemories,
+                    promptPlan.prompt(),
+                    promptPlanner,
                     DeepGlobalAnswerGenerator.HARD_TIMEOUT,
                     (used, mapCalls, reduceCalls) -> recordAnswerProgress(
                             input,
                             used,
                             mapCalls,
                             reduceCalls
+                    ),
+                    (stage, callIndex, prepared) ->
+                            promptPlanner.recordCall(
+                                    input.user().id(),
+                                    input.started().run().sessionId(),
+                                    input.started().run().id(),
+                                    history(state).summaryId(),
+                                    stage,
+                                    callIndex,
+                                    prepared
                     )
             );
         } else {
@@ -600,12 +682,7 @@ class ChatWorkflow {
                     0
             );
             execution = AnswerExecution.standard(
-                    model.answer(
-                             input.question(),
-                             modelEvidence,
-                             history.messages(),
-                             modelMemories
-                     ),
+                    model.answer(promptPlan.prompt()),
                     requested,
                     requested == AnswerStrategy.DEEP_GLOBAL
                             ? "DEEP_GLOBAL_RETRIEVAL_FALLBACK"
@@ -615,6 +692,23 @@ class ChatWorkflow {
         return Map.of(
                 MODEL_ANSWER, execution.answer(),
                 ANSWER_EXECUTION, execution
+        );
+    }
+
+    private Map<String, Object> planPromptContext(OverAllState state) {
+        RunInput input = input(state);
+        userGuard.requireCurrent(input.user());
+        return Map.of(
+                PROMPT_PLAN,
+                promptPlanner.plan(
+                        input.user().id(),
+                        input.started().run().sessionId(),
+                        input.started().run().id(),
+                        input.question(),
+                        evidence(state),
+                        history(state),
+                        memory(state)
+                )
         );
     }
 
@@ -680,15 +774,16 @@ class ChatWorkflow {
         }
 
         Map<UUID, EvidenceReference> whitelist = new LinkedHashMap<>();
-        evidence(state).forEach(item -> item.citationSpans().forEach(
+        promptEvidence(state).forEach(item -> item.citationSpans().forEach(
                 (id, span) -> whitelist.put(
                         id,
                         new EvidenceReference(id, item, span)
                 )
         ));
-        Set<UUID> memoryWhitelist = currentMemoryWhitelist(
-                input.user(), memory(state)
+        Set<UUID> memoryWhitelist = new LinkedHashSet<>(
+                currentMemoryWhitelist(input.user(), memory(state))
         );
+        memoryWhitelist.retainAll(promptPlan(state).memoryIds());
         List<ModelSegment> segments = new ArrayList<>();
         Map<UUID, EvidenceReference> used = new LinkedHashMap<>();
         Set<UUID> usedMemories = new LinkedHashSet<>();
@@ -873,6 +968,30 @@ class ChatWorkflow {
                 history.messageIds().size()
         );
         budgetUsage.put("historyTokenCount", history.tokenCount());
+        PromptPlan finalPromptPlan = state.value(
+                PROMPT_PLAN, PromptPlan.class
+        ).orElse(null);
+        if (finalPromptPlan != null) {
+            budgetUsage.put(
+                    "promptPlanHash", finalPromptPlan.prompt().planHash()
+            );
+            budgetUsage.put(
+                    "promptInputTokenCap",
+                    finalPromptPlan.prompt().inputTokenCap()
+            );
+            budgetUsage.put(
+                    "promptInputTokenCount",
+                    finalPromptPlan.prompt().inputTokenCount()
+            );
+            budgetUsage.put(
+                    "promptCounterVersion",
+                    finalPromptPlan.prompt().counterVersion()
+            );
+            budgetUsage.put(
+                    "promptTrimReasons",
+                    finalPromptPlan.prompt().trimReasons()
+            );
+        }
         QueryExecution queryExecution = page.queryExecution();
         budgetUsage.put(
                 "queryPlanHash",
@@ -1007,11 +1126,8 @@ class ChatWorkflow {
                         .toList()),
                 json(trimReasons)
         );
-        if (!repository.finishRun(
-                input.user().id(),
-                input.started().run().id(),
-                completion
-        )) {
+        boolean finished = finishAndScheduleCompression(input, completion);
+        if (!finished) {
             throw new ChatWorkflowException("RUN_NOT_ACTIVE", "问答任务已结束");
         }
         return Map.of(
@@ -1077,6 +1193,29 @@ class ChatWorkflow {
                         memoryUsages
                 )
         );
+    }
+
+    private boolean finishAndScheduleCompression(
+            RunInput input,
+            RunCompletion completion
+    ) {
+        if (transactions == null || compression == null) {
+            return repository.finishRun(
+                    input.user().id(), input.started().run().id(), completion
+            );
+        }
+        Boolean finished = transactions.execute(ignored -> {
+            boolean completed = repository.finishRun(
+                    input.user().id(), input.started().run().id(), completion
+            );
+            if (completed) {
+                compression.prepare(
+                        input.user(), input.started().run().sessionId()
+                );
+            }
+            return completed;
+        });
+        return Boolean.TRUE.equals(finished);
     }
 
     private boolean stillAuthorized(
@@ -1335,6 +1474,14 @@ class ChatWorkflow {
     private static MemoryPack memory(OverAllState state) {
         return state.value(MEMORY, MemoryPack.class)
                 .orElseGet(MemoryPack::off);
+    }
+
+    private static PromptPlan promptPlan(OverAllState state) {
+        return state.value(PROMPT_PLAN, PromptPlan.class).orElseThrow();
+    }
+
+    private static List<EvidenceItem> promptEvidence(OverAllState state) {
+        return promptPlan(state).evidence();
     }
 
     private static String refusalText(String language) {

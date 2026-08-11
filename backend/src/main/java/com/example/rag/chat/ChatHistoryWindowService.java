@@ -1,13 +1,12 @@
 package com.example.rag.chat;
 
 import com.example.rag.chat.ChatModelProvider.ModelHistoryMessage;
-import com.example.rag.chat.ChatPersistenceContracts.ChatMessage;
-import com.example.rag.chat.ChatPersistenceContracts.MessageRole;
 import com.example.rag.chat.ChatPersistenceContracts.RunHistorySnapshot;
-import com.example.rag.chat.ChatPersistenceContracts.RunStatus;
 import com.example.rag.chat.ChatPersistenceContracts.StartedRun;
-import com.example.rag.chat.ChatPersistenceRepository.HistoryEntry;
 import com.example.rag.chat.QueryIntelligenceContracts.ProfileView;
+import com.example.rag.chat.ContextCompressionService.HistoryContext;
+import com.example.rag.chat.ContextCompressionService.SourceMessage;
+import com.example.rag.chat.ContextCompressionService.SummaryArtifact;
 import com.example.rag.security.PlatformUserPrincipal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,18 +33,18 @@ class ChatHistoryWindowService {
 
     private final ChatPersistenceRepository repository;
     private final QueryIntelligenceProfileService profiles;
-    private final AnswerSourceService answerSources;
+    private final ContextCompressionService compression;
     private final ObjectMapper objectMapper;
 
     ChatHistoryWindowService(
             ChatPersistenceRepository repository,
             QueryIntelligenceProfileService profiles,
-            AnswerSourceService answerSources,
+            ContextCompressionService compression,
             ObjectMapper objectMapper
     ) {
         this.repository = repository;
         this.profiles = profiles;
-        this.answerSources = answerSources;
+        this.compression = compression;
         this.objectMapper = objectMapper;
     }
 
@@ -54,133 +53,75 @@ class ChatHistoryWindowService {
             StartedRun started
     ) {
         String version = started.run().queryIntelligenceProfileVersion();
-        if (version == null) {
-            return HistoryWindow.off();
+        ProfileView profile = version == null ? null : profiles.find(version);
+        int limit = profile == null ? 12 : profile.historyMessageLimit();
+        int tokenBudget = profile == null
+                ? compression.effectiveHistoryBudget()
+                : profile.effectiveHistoryTokenBudget();
+        try {
+            compression.prepare(user, started.run().sessionId());
+        } catch (RuntimeException ignored) {
+            // Compression is asynchronous and must never block the answer.
         }
-        ProfileView profile = profiles.find(version);
-        List<String> trimReasons = new ArrayList<>();
-        if (!profile.enabled()) {
-            trimReasons.add("QUERY_PROFILE_DISABLED");
-            return snapshot(started, profile, List.of(), trimReasons);
-        }
-
-        int beforeSequence = started.requestMessage().sequenceNumber();
-        int candidateLimit = Math.min(
-                48, profile.historyMessageLimit() * 4
-        );
-        List<HistoryEntry> recent = repository.recentHistory(
-                user.id(),
+        HistoryContext context = compression.historyContext(
+                user,
                 started.run().sessionId(),
-                beforeSequence,
-                candidateLimit
+                started.requestMessage().sequenceNumber(),
+                limit,
+                tokenBudget
         );
-        if (recent.size() == candidateLimit) {
-            addReason(trimReasons, "HISTORY_CANDIDATE_LIMIT");
-        }
-        Map<UUID, AnswerSourceService.RunSources> sourcesByRun =
-                answerSources.load(
-                        user,
-                        recent.stream()
-                                .filter(entry -> entry.runId() != null
-                                        && entry.runStatus()
-                                        == RunStatus.COMPLETED)
-                                .map(HistoryEntry::runId)
-                                .distinct()
-                                .toList()
-                );
-        List<HistoryCandidate> eligible = new ArrayList<>();
-        for (HistoryEntry entry : recent) {
-            ChatMessage message = entry.message();
-            if (message.role() == MessageRole.USER) {
-                eligible.add(candidate(message));
-                continue;
-            }
-            if (message.role() != MessageRole.ASSISTANT) {
-                continue;
-            }
-            if (entry.runId() == null
-                    || entry.runStatus() != RunStatus.COMPLETED
-                    && entry.runStatus() != RunStatus.REFUSED) {
-                continue;
-            }
-            if (entry.runStatus() == RunStatus.COMPLETED) {
-                AnswerSourceService.RunSources sourceStatus =
-                        sourcesByRun.getOrDefault(
-                                entry.runId(),
-                                AnswerSourceService.RunSources.invalid()
-                        );
-                if (!sourceStatus.current()) {
-                    addReason(
-                            trimReasons,
-                            "ASSISTANT_CITATION_OR_MEMORY_REVOKED"
-                    );
-                    continue;
-                }
-                if (sourceStatus.usedMemory()) {
-                    addReason(trimReasons, "ASSISTANT_MEMORY_EXCLUDED");
-                    continue;
-                }
-            }
-            eligible.add(candidate(message));
-        }
-
-        int limit = profile.historyMessageLimit();
-        while (eligible.size() > limit) {
-            eligible.removeFirst();
-            addReason(trimReasons, "HISTORY_MESSAGE_LIMIT");
-        }
-        int tokenBudget = profile.effectiveHistoryTokenBudget();
-        int tokens = eligible.stream()
-                .mapToInt(HistoryCandidate::tokens)
-                .sum();
-        while (!eligible.isEmpty() && tokens > tokenBudget) {
-            tokens -= eligible.removeFirst().tokens();
-            addReason(trimReasons, "HISTORY_TOKEN_BUDGET");
-        }
-        if (!eligible.isEmpty()
-                && eligible.getFirst().message().role()
-                == MessageRole.ASSISTANT) {
-            eligible.removeFirst();
-            addReason(trimReasons, "HISTORY_ORPHAN_ASSISTANT");
-        }
-        return snapshot(started, profile, eligible, trimReasons);
+        return snapshot(started, profile, context);
     }
 
     private HistoryWindow snapshot(
             StartedRun started,
             ProfileView profile,
-            List<HistoryCandidate> candidates,
-            List<String> trimReasons
+            HistoryContext context
     ) {
-        List<UUID> ids = candidates.stream()
-                .map(candidate -> candidate.message().id())
+        SummaryArtifact summary = context.summary();
+        List<SourceMessage> raw = context.rawMessages();
+        List<UUID> ids = raw.stream()
+                .map(SourceMessage::id)
                 .toList();
-        List<ModelHistoryMessage> messages = candidates.stream()
-                .map(candidate -> new ModelHistoryMessage(
-                        candidate.message().role().name().toLowerCase(),
-                        candidate.message().content()
-                ))
-                .toList();
-        int tokens = candidates.stream()
-                .mapToInt(HistoryCandidate::tokens)
-                .sum();
+        List<ModelHistoryMessage> messages = new ArrayList<>();
+        if (summary != null) {
+            messages.add(new ModelHistoryMessage(
+                    "summary", summary.summaryJson()
+            ));
+        }
+        raw.stream().map(source -> new ModelHistoryMessage(
+                source.role().name().toLowerCase(), source.content()
+        )).forEach(messages::add);
+        List<String> trimReasons = context.reasonCode() == null
+                ? List.of() : List.of(context.reasonCode());
+        String profileVersion = profile == null ? null : profile.version();
         String hash = hash(Map.of(
-                "profileVersion", profile.version(),
-                "counterVersion", profile.tokenCounterVersion(),
-                "messages", candidates.stream()
-                        .map(candidate -> Map.of(
-                                "id", candidate.message().id(),
-                                "role", candidate.message().role(),
-                                "content", candidate.message().content()
+                "queryProfileVersion", profileVersion == null
+                        ? "NONE" : profileVersion,
+                "contextPolicyVersion", ContextCompressionService.POLICY_VERSION,
+                "counterVersion", ContextCompressionService.COUNTER_VERSION,
+                "summaryContentHash", summary == null
+                        ? "NONE" : summary.contentHash(),
+                "messages", raw.stream()
+                        .map(source -> Map.of(
+                                "id", source.id(),
+                                "role", source.role(),
+                                "contentHash", source.contentHash()
                         ))
                         .toList()
         ));
         RunHistorySnapshot persisted = new RunHistorySnapshot(
                 json(ids),
                 hash,
-                profile.tokenCounterVersion(),
-                tokens,
-                json(trimReasons)
+                ContextCompressionService.COUNTER_VERSION,
+                context.tokenCount(),
+                json(trimReasons),
+                ContextCompressionService.POLICY_VERSION,
+                summary == null ? null : summary.id(),
+                summary == null ? 0 : summary.tokenCount(),
+                summary == null ? 0 : summary.sourceCount(),
+                context.status(),
+                context.reasonCode()
         );
         repository.recordHistorySnapshot(
                 started.run().ownerUserId(),
@@ -188,31 +129,21 @@ class ChatHistoryWindowService {
                 persisted
         );
         return new HistoryWindow(
-                profile.version(),
+                profileVersion,
+                ContextCompressionService.POLICY_VERSION,
                 List.copyOf(messages),
                 List.copyOf(ids),
                 hash,
-                profile.tokenCounterVersion(),
-                tokens,
-                List.copyOf(trimReasons)
+                ContextCompressionService.COUNTER_VERSION,
+                context.tokenCount(),
+                List.copyOf(trimReasons),
+                summary == null ? null : summary.id(),
+                summary == null ? 0 : summary.sourceCount(),
+                summary == null ? 0 : summary.tokenCount(),
+                raw.size(),
+                context.status(),
+                context.reasonCode()
         );
-    }
-
-    private HistoryCandidate candidate(ChatMessage message) {
-        try {
-            byte[] serialized = objectMapper.writeValueAsBytes(Map.of(
-                    "role", message.role().name().toLowerCase(),
-                    "content", message.content()
-            ));
-            return new HistoryCandidate(
-                    message,
-                    Math.addExact(serialized.length, 16)
-            );
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException(
-                    "Unable to count history message", exception
-            );
-        }
     }
 
     private String json(Object value) {
@@ -236,29 +167,28 @@ class ChatHistoryWindowService {
         }
     }
 
-    private static void addReason(List<String> reasons, String value) {
-        if (!reasons.contains(value)) {
-            reasons.add(value);
-        }
-    }
-
     record HistoryWindow(
             String profileVersion,
+            String compressionPolicyVersion,
             List<ModelHistoryMessage> messages,
             List<UUID> messageIds,
             String snapshotHash,
             String counterVersion,
             int tokenCount,
-            List<String> trimReasons
+            List<String> trimReasons,
+            UUID summaryId,
+            int coveredMessageCount,
+            int summaryTokenCount,
+            int tailMessageCount,
+            String compressionStatus,
+            String compressionReasonCode
     ) {
         static HistoryWindow off() {
             return new HistoryWindow(
-                    null, List.of(), List.of(), null,
-                    null, 0, List.of()
+                    null, null, List.of(), List.of(), null,
+                    null, 0, List.of(), null, 0, 0, 0,
+                    "NOT_NEEDED", null
             );
         }
-    }
-
-    private record HistoryCandidate(ChatMessage message, int tokens) {
     }
 }

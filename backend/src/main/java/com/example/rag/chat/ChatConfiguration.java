@@ -54,4 +54,10 @@ class ChatConfiguration {
     ExecutorService chatExecutor() {
         return Executors.newVirtualThreadPerTaskExecutor();
     }
+
+    @Bean(destroyMethod = "close")
+    @Qualifier("contextCompressionExecutor")
+    ExecutorService contextCompressionExecutor() {
+        return Executors.newVirtualThreadPerTaskExecutor();
+    }
 }

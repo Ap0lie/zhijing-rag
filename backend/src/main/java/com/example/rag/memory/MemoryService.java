@@ -1,6 +1,7 @@
 package com.example.rag.memory;
 
 import com.example.rag.common.ApiException;
+import com.example.rag.common.SensitiveContentDetector;
 import com.example.rag.document.SourceLocatorResponse;
 import com.example.rag.memory.MemoryContracts.AdminMemorySummaryView;
 import com.example.rag.memory.MemoryContracts.CreateMemoryRequest;
@@ -42,20 +43,6 @@ public class MemoryService {
     private static final int MAX_CONTENT_LENGTH = 1200;
     private static final Pattern IDEMPOTENCY_KEY =
             Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{7,127}");
-    private static final List<Pattern> CREDENTIAL_PATTERNS = List.of(
-            Pattern.compile("-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----"),
-            Pattern.compile(
-                    "(?i)\\b(?:password|passwd|pwd|cookie|token|api[ _-]?key"
-                            + "|secret|authorization)\\b\\s*[:=]\\s*\\S{4,}"
-            ),
-            Pattern.compile("(?:密码|令牌|密钥)\\s*[:：=]\\s*\\S{4,}"),
-            Pattern.compile("(?i)\\bBearer\\s+[A-Za-z0-9._~+/-]{12,}"),
-            Pattern.compile("\\bsk-[A-Za-z0-9_-]{16,}\\b"),
-            Pattern.compile(
-                    "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"
-                            + "\\.[A-Za-z0-9_-]{8,}\\b"
-            )
-    );
 
     private final JdbcTemplate jdbc;
 
@@ -1339,8 +1326,7 @@ public class MemoryService {
     }
 
     static boolean containsCredentials(String value) {
-        return value != null && CREDENTIAL_PATTERNS.stream()
-                .anyMatch(pattern -> pattern.matcher(value).find());
+        return SensitiveContentDetector.containsCredentials(value);
     }
 
     private static void validateExpiry(Instant expiresAt) {

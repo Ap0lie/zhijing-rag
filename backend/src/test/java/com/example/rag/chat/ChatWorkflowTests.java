@@ -3,6 +3,7 @@ package com.example.rag.chat;
 import com.example.rag.chat.ChatModelProvider.ModelAnswer;
 import com.example.rag.chat.ChatModelProvider.ModelEvidence;
 import com.example.rag.chat.ChatModelProvider.ModelSegment;
+import com.example.rag.chat.ChatModelProvider.PreparedPrompt;
 import com.example.rag.chat.ChatPersistenceContracts.ChatMessage;
 import com.example.rag.chat.ChatPersistenceContracts.ChatRun;
 import com.example.rag.chat.ChatPersistenceContracts.Citation;
@@ -201,7 +202,7 @@ class ChatWorkflowTests {
         assertThat(outcome.refusalCode()).isEqualTo("INSUFFICIENT_EVIDENCE");
         assertThat(outcome.content()).contains("没有找到足够");
         assertThat(outcome.citations()).isEmpty();
-        verify(model, never()).answer(any(), any(), any(), any());
+        verify(model, never()).answer(any(PreparedPrompt.class));
         verify(repository).finishRun(any(), any(), any());
     }
 
@@ -315,7 +316,7 @@ class ChatWorkflowTests {
                         MemoryPackService.RunMemoryUsageView::usageStatus
                 )
                 .isEqualTo("INJECTED");
-        verify(model, never()).answer(any(), any(), any(), any());
+        verify(model, never()).answer(any(PreparedPrompt.class));
         verify(memoryPacks).saveRunUsages(
                 eq(ownerId), eq(runId), eq(pack),
                 eq(Set.of()), eq(Set.of())
@@ -373,7 +374,7 @@ class ChatWorkflowTests {
         ChunkContextService chunks = mock(ChunkContextService.class);
         when(chunks.get(childId, user)).thenReturn(context);
         ChatModelProvider model = mock(ChatModelProvider.class);
-        when(model.answer(any(), any(), any(), any())).thenReturn(
+        when(model.answer(any(PreparedPrompt.class))).thenReturn(
                 new ModelAnswer(List.of(), "MODEL_DECLINED")
         );
         ChatPersistenceRepository repository = mock(ChatPersistenceRepository.class);
@@ -474,8 +475,9 @@ class ChatWorkflowTests {
         when(chunks.get(childB, user)).thenReturn(contextB);
 
         ChatModelProvider model = mock(ChatModelProvider.class);
-        when(model.answer(any(), any(), any(), any())).thenAnswer(invocation -> {
-            List<ModelEvidence> evidence = invocation.getArgument(1);
+        when(model.answer(any(PreparedPrompt.class))).thenAnswer(invocation -> {
+            List<ModelEvidence> evidence = ((PreparedPrompt)
+                    invocation.getArgument(0)).evidence();
             return new ModelAnswer(
                     List.of(
                             new ModelSegment(
@@ -687,8 +689,9 @@ class ChatWorkflowTests {
         ChunkContextService chunks = mock(ChunkContextService.class);
         when(chunks.get(childId, user)).thenReturn(context);
         ChatModelProvider model = mock(ChatModelProvider.class);
-        when(model.answer(any(), any(), any(), any())).thenAnswer(invocation -> {
-            List<ModelEvidence> evidence = invocation.getArgument(1);
+        when(model.answer(any(PreparedPrompt.class))).thenAnswer(invocation -> {
+            List<ModelEvidence> evidence = ((PreparedPrompt)
+                    invocation.getArgument(0)).evidence();
             UUID graphCitation = evidence.getFirst()
                     .graphContext().getFirst().citationId();
             return new ModelAnswer(

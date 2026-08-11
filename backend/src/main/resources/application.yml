@@ -86,6 +86,13 @@ rag:
       local-endpoint: ${LLM_LOCAL_ENDPOINT:false}
       remote-evidence-allowed: ${LLM_REMOTE_EVIDENCE_ALLOWED:false}
       remote-memory-allowed: ${LLM_REMOTE_MEMORY_ALLOWED:false}
+      remote-conversation-context-allowed: ${LLM_REMOTE_CONVERSATION_CONTEXT_ALLOWED:false}
+    context-compression:
+      enabled: ${CONTEXT_COMPRESSION_ENABLED:true}
+      worker-enabled: ${CONTEXT_COMPRESSION_WORKER_ENABLED:true}
+      worker-id: ${CONTEXT_COMPRESSION_WORKER_ID:context-compression-worker}
+      poll-interval: ${CONTEXT_COMPRESSION_POLL_INTERVAL:PT1S}
+      lease-duration: ${CONTEXT_COMPRESSION_LEASE_DURATION:PT45S}
   memory:
     suggestion:
       worker-enabled: ${MEMORY_SUGGESTION_WORKER_ENABLED:false}

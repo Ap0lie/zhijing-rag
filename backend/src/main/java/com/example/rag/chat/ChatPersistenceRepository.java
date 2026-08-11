@@ -275,6 +275,54 @@ public class ChatPersistenceRepository {
     }
 
     @Transactional(readOnly = true)
+    List<HistoryEntry> historyWindow(
+            UUID ownerUserId,
+            UUID sessionId,
+            int afterSequence,
+            int beforeSequence,
+            int limit
+    ) {
+        requireOwner(ownerUserId);
+        int safeLimit = Math.max(1, Math.min(limit, 48));
+        return jdbc.query(
+                """
+                SELECT message.id, message.owner_user_id,
+                       message.session_id, message.sequence_number,
+                       message.role, message.content, message.language,
+                       message.status, message.token_count,
+                       message.created_at, message.updated_at,
+                       run.id AS run_id, run.status AS run_status
+                FROM chat_messages message
+                LEFT JOIN chat_runs run
+                  ON run.owner_user_id = message.owner_user_id
+                 AND run.session_id = message.session_id
+                 AND run.response_message_id = message.id
+                WHERE message.owner_user_id = ?
+                  AND message.session_id = ?
+                  AND message.sequence_number > ?
+                  AND message.sequence_number < ?
+                  AND message.status = 'COMPLETED'
+                  AND message.role IN ('USER', 'ASSISTANT')
+                ORDER BY message.sequence_number
+                LIMIT ?
+                """,
+                (rs, row) -> new HistoryEntry(
+                        mapMessage(rs),
+                        rs.getObject("run_id", UUID.class),
+                        rs.getString("run_status") == null
+                                ? null
+                                : RunStatus.valueOf(
+                                rs.getString("run_status"))
+                ),
+                ownerUserId,
+                sessionId,
+                Math.max(0, afterSequence),
+                beforeSequence,
+                safeLimit
+        );
+    }
+
+    @Transactional(readOnly = true)
     public List<ChatRun> listRuns(UUID ownerUserId, UUID sessionId) {
         requireOwner(ownerUserId);
         return jdbc.query(
@@ -322,6 +370,15 @@ public class ChatPersistenceRepository {
             queryProfileVersion = requireText(
                     queryProfileVersion,
                     "queryIntelligenceProfileVersion",
+                    64
+            );
+        }
+        String compressionPolicyVersion =
+                command.contextCompressionPolicyVersion();
+        if (compressionPolicyVersion != null) {
+            compressionPolicyVersion = requireText(
+                    compressionPolicyVersion,
+                    "contextCompressionPolicyVersion",
                     64
             );
         }
@@ -423,6 +480,7 @@ public class ChatPersistenceRepository {
                     response_message_id, orchestration_version, standalone_query,
                     trace_id, graph_mode_requested, answer_strategy_requested,
                     query_intelligence_profile_version,
+                    context_compression_policy_version,
                     memory_suggestion_snapshot_schema,
                     memory_suggestion_extractor_version,
                     memory_suggestion_prompt_version,
@@ -434,7 +492,7 @@ public class ChatPersistenceRepository {
                     status, started_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     'RUNNING',
                     CURRENT_TIMESTAMP
                 )
@@ -450,6 +508,7 @@ public class ChatPersistenceRepository {
                 graphModeRequested,
                 answerStrategyRequested,
                 queryProfileVersion,
+                compressionPolicyVersion,
                 suggestionSnapshot == null
                         ? 0
                         : suggestionSnapshot.schemaVersion(),
@@ -519,11 +578,17 @@ public class ChatPersistenceRepository {
                     history_counter_version = ?,
                     history_token_count = ?,
                     history_trim_reasons = CAST(? AS JSONB),
+                    history_summary_id = ?,
+                    history_summary_token_count = ?,
+                    history_summary_source_count = ?,
+                    context_compression_status = ?,
+                    context_compression_reason_code = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE owner_user_id = ?
                   AND id = ?
                   AND status = 'RUNNING'
-                  AND query_intelligence_profile_version IS NOT NULL
+                  AND (query_intelligence_profile_version IS NOT NULL
+                       OR context_compression_policy_version IS NOT NULL)
                 """,
                 jsonOrDefault(snapshot.messageIdsJson(), "[]"),
                 hash,
@@ -534,12 +599,17 @@ public class ChatPersistenceRepository {
                 ),
                 snapshot.tokenCount(),
                 jsonOrDefault(snapshot.trimReasonsJson(), "[]"),
+                snapshot.summaryId(),
+                snapshot.summaryTokenCount(),
+                snapshot.summarySourceCount(),
+                snapshot.compressionStatus(),
+                snapshot.compressionReasonCode(),
                 ownerUserId,
                 runId
         );
         if (changed != 1) {
             throw new IllegalStateException(
-                    "running chat run has no frozen Query Profile"
+                    "running chat run has no frozen history policy"
             );
         }
     }
@@ -1126,6 +1196,11 @@ public class ChatPersistenceRepository {
                        history_snapshot_hash, history_counter_version,
                        history_token_count,
                        history_trim_reasons::text AS history_trim_reasons_json,
+                       context_compression_policy_version,
+                       history_summary_id, history_summary_token_count,
+                       history_summary_source_count,
+                       context_compression_status,
+                       context_compression_reason_code,
                        trace_id, status, error_code, error_detail, created_at,
                        started_at, completed_at, updated_at
                 FROM chat_runs
@@ -1218,6 +1293,12 @@ public class ChatPersistenceRepository {
                 resultSet.getString("history_counter_version"),
                 resultSet.getInt("history_token_count"),
                 resultSet.getString("history_trim_reasons_json"),
+                resultSet.getString("context_compression_policy_version"),
+                resultSet.getObject("history_summary_id", UUID.class),
+                resultSet.getInt("history_summary_token_count"),
+                resultSet.getInt("history_summary_source_count"),
+                resultSet.getString("context_compression_status"),
+                resultSet.getString("context_compression_reason_code"),
                 resultSet.getString("trace_id"),
                 RunStatus.valueOf(resultSet.getString("status")),
                 resultSet.getString("error_code"),

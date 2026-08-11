@@ -10,6 +10,8 @@ public class ChatProperties {
     private boolean enabled = true;
     private Duration sseTimeout = Duration.ofSeconds(30);
     private final Llm llm = new Llm();
+    private final ContextCompression contextCompression =
+            new ContextCompression();
 
     public boolean isEnabled() {
         return enabled;
@@ -31,6 +33,10 @@ public class ChatProperties {
         return llm;
     }
 
+    public ContextCompression getContextCompression() {
+        return contextCompression;
+    }
+
     public static class Llm {
 
         private boolean enabled;
@@ -44,6 +50,7 @@ public class ChatProperties {
         private boolean localEndpoint;
         private boolean remoteEvidenceAllowed;
         private boolean remoteMemoryAllowed;
+        private boolean remoteConversationContextAllowed;
 
         public boolean isEnabled() {
             return enabled;
@@ -136,6 +143,66 @@ public class ChatProperties {
 
         public void setRemoteMemoryAllowed(boolean remoteMemoryAllowed) {
             this.remoteMemoryAllowed = remoteMemoryAllowed;
+        }
+
+        public boolean isRemoteConversationContextAllowed() {
+            return remoteConversationContextAllowed;
+        }
+
+        public void setRemoteConversationContextAllowed(
+                boolean remoteConversationContextAllowed
+        ) {
+            this.remoteConversationContextAllowed =
+                    remoteConversationContextAllowed;
+        }
+    }
+
+    public static class ContextCompression {
+
+        private boolean enabled = true;
+        private boolean workerEnabled = true;
+        private String workerId = "context-compression-worker";
+        private Duration pollInterval = Duration.ofSeconds(1);
+        private Duration leaseDuration = Duration.ofSeconds(45);
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isWorkerEnabled() {
+            return workerEnabled;
+        }
+
+        public void setWorkerEnabled(boolean workerEnabled) {
+            this.workerEnabled = workerEnabled;
+        }
+
+        public String getWorkerId() {
+            return workerId;
+        }
+
+        public void setWorkerId(String workerId) {
+            this.workerId = workerId;
+        }
+
+        public Duration getPollInterval() {
+            return pollInterval;
+        }
+
+        public void setPollInterval(Duration pollInterval) {
+            this.pollInterval = pollInterval;
+        }
+
+        public Duration getLeaseDuration() {
+            return leaseDuration;
+        }
+
+        public void setLeaseDuration(Duration leaseDuration) {
+            this.leaseDuration = leaseDuration;
         }
     }
 }

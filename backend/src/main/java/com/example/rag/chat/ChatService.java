@@ -11,6 +11,8 @@ import com.example.rag.chat.ChatApiContracts.MemoryUsedEvent;
 import com.example.rag.chat.ChatApiContracts.MemoryUsedSummary;
 import com.example.rag.chat.ChatApiContracts.MemorySuggestionStatusItem;
 import com.example.rag.chat.ChatApiContracts.MemorySuggestionStatusResponse;
+import com.example.rag.chat.ChatApiContracts.ContextStatusResponse;
+import com.example.rag.chat.ChatApiContracts.ContextUsedEvent;
 import com.example.rag.chat.ChatApiContracts.RunView;
 import com.example.rag.chat.ChatApiContracts.SessionDetailResponse;
 import com.example.rag.chat.ChatApiContracts.SessionListResponse;
@@ -46,6 +48,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -85,10 +88,12 @@ class ChatService {
     private final MemoryPackService memories;
     private final MemorySuggestionService suggestions;
     private final AnswerSourceService answerSources;
+    private final ContextCompressionService compression;
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
     private final Map<UUID, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
+    @Autowired
     ChatService(
             ChatPersistenceRepository repository,
             ChatWorkflow workflow,
@@ -99,6 +104,7 @@ class ChatService {
             MemoryPackService memories,
             MemorySuggestionService suggestions,
             AnswerSourceService answerSources,
+            ContextCompressionService compression,
             ObjectMapper objectMapper,
             @Qualifier("chatExecutor") ExecutorService executor
     ) {
@@ -111,8 +117,29 @@ class ChatService {
         this.memories = memories;
         this.suggestions = suggestions;
         this.answerSources = answerSources;
+        this.compression = compression;
         this.objectMapper = objectMapper;
         this.executor = executor;
+    }
+
+    ChatService(
+            ChatPersistenceRepository repository,
+            ChatWorkflow workflow,
+            ChunkContextService chunks,
+            ChatUserGuard userGuard,
+            ChatProperties properties,
+            QueryIntelligenceProfileService queryProfiles,
+            MemoryPackService memories,
+            MemorySuggestionService suggestions,
+            AnswerSourceService answerSources,
+            ObjectMapper objectMapper,
+            ExecutorService executor
+    ) {
+        this(
+                repository, workflow, chunks, userGuard, properties,
+                queryProfiles, memories, suggestions, answerSources, null,
+                objectMapper, executor
+        );
     }
 
     SessionListResponse listSessions(PlatformUserPrincipal user) {
@@ -203,6 +230,28 @@ class ChatService {
                 "PENDING".equals(item.status())
                         || "RUNNING".equals(item.status()));
         return new MemorySuggestionStatusResponse(items, pending);
+    }
+
+    ContextStatusResponse prepareContext(
+            UUID sessionId,
+            PlatformUserPrincipal user
+    ) {
+        userGuard.requireCurrent(user);
+        if (compression == null) {
+            throw new IllegalStateException("Context compression unavailable");
+        }
+        return contextResponse(compression.prepare(user, sessionId));
+    }
+
+    ContextStatusResponse context(
+            UUID sessionId,
+            PlatformUserPrincipal user
+    ) {
+        userGuard.requireCurrent(user);
+        if (compression == null) {
+            throw new IllegalStateException("Context compression unavailable");
+        }
+        return contextResponse(compression.status(user, sessionId));
     }
 
     void deleteSession(UUID sessionId, PlatformUserPrincipal user) {
@@ -375,7 +424,8 @@ class ChatService {
                                 answerStrategyRequested.name(),
                                 queryProfile == null
                                         ? null
-                                        : queryProfile.version()
+                                        : queryProfile.version(),
+                                ContextCompressionService.POLICY_VERSION
                         ),
                         suggestions.runtimeSnapshot()
                 )
@@ -542,6 +592,19 @@ class ChatService {
                     new MemoryUsedEvent(outcome.runId(), usedMemories)
             );
         }
+        if (compression != null) {
+            send(
+                    active,
+                    "context_used",
+                    new ContextUsedEvent(
+                            outcome.runId(),
+                            contextResponse(compression.status(
+                                    active.user,
+                                    active.started.run().sessionId()
+                            ))
+                    )
+            );
+        }
         for (String delta : answerDeltas(outcome)) {
             send(
                     active,
@@ -703,6 +766,23 @@ class ChatService {
         );
     }
 
+    private static ContextStatusResponse contextResponse(
+            ContextCompressionService.ContextStatus status
+    ) {
+        return new ContextStatusResponse(
+                status.status(),
+                status.policyVersion(),
+                status.coveredMessageCount(),
+                status.tailMessageCount(),
+                status.summaryTokenCount(),
+                status.finalHistoryTokenCount(),
+                status.estimatedSavedTokens(),
+                status.compressionRatio(),
+                status.updatedAt(),
+                status.reasonCode()
+        );
+    }
+
     private RunView runView(ChatRun run) {
         JsonNode budget = jsonObject(run.budgetUsageJson());
         return new RunView(
@@ -726,6 +806,12 @@ class ChatService {
                 run.historyCounterVersion(),
                 run.historyTokenCount(),
                 stringList(run.historyTrimReasonsJson()),
+                run.contextCompressionPolicyVersion(),
+                run.historySummaryId(),
+                run.historySummaryTokenCount(),
+                run.historySummarySourceCount(),
+                run.contextCompressionStatus(),
+                run.contextCompressionReasonCode(),
                 budget.path("memoryUsedCount").asInt(0),
                 budget.path("memoryTokenCount").asInt(0),
                 nullableText(budget.path("memoryDegradationCode")),

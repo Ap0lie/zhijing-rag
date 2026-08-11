@@ -102,6 +102,12 @@ public final class ChatPersistenceContracts {
             String historyCounterVersion,
             int historyTokenCount,
             String historyTrimReasonsJson,
+            String contextCompressionPolicyVersion,
+            UUID historySummaryId,
+            int historySummaryTokenCount,
+            int historySummarySourceCount,
+            String contextCompressionStatus,
+            String contextCompressionReasonCode,
             String traceId,
             RunStatus status,
             String errorCode,
@@ -145,6 +151,7 @@ public final class ChatPersistenceContracts {
                     null, null, AnswerStrategy.STANDARD.name(), null, 0, 0,
                     finalEvidenceIdsJson, finalSourceSpansJson, trimReasonsJson,
                     null, "[]", null, null, 0, "[]",
+                    null, null, 0, 0, null, null,
                     traceId, status, errorCode, errorDetail, createdAt,
                     startedAt, completedAt, updatedAt
             );
@@ -185,8 +192,26 @@ public final class ChatPersistenceContracts {
             String traceId,
             String graphModeRequested,
             String answerStrategyRequested,
-            String queryIntelligenceProfileVersion
+            String queryIntelligenceProfileVersion,
+            String contextCompressionPolicyVersion
     ) {
+        public StartRunCommand(
+                String question,
+                String language,
+                String orchestrationVersion,
+                String traceId,
+                String graphModeRequested,
+                String answerStrategyRequested,
+                String queryIntelligenceProfileVersion
+        ) {
+            this(
+                    question, language, orchestrationVersion, traceId,
+                    graphModeRequested, answerStrategyRequested,
+                    queryIntelligenceProfileVersion,
+                    ContextCompressionService.POLICY_VERSION
+            );
+        }
+
         public StartRunCommand(
                 String question,
                 String language,
@@ -195,7 +220,8 @@ public final class ChatPersistenceContracts {
         ) {
             this(
                     question, language, orchestrationVersion, traceId, "HYBRID",
-                    AnswerStrategy.STANDARD.name(), null
+                    AnswerStrategy.STANDARD.name(), null,
+                    ContextCompressionService.POLICY_VERSION
             );
         }
 
@@ -208,7 +234,8 @@ public final class ChatPersistenceContracts {
         ) {
             this(
                     question, language, orchestrationVersion, traceId,
-                    graphModeRequested, AnswerStrategy.STANDARD.name(), null
+                    graphModeRequested, AnswerStrategy.STANDARD.name(), null,
+                    ContextCompressionService.POLICY_VERSION
             );
         }
 
@@ -222,7 +249,8 @@ public final class ChatPersistenceContracts {
         ) {
             this(
                     question, language, orchestrationVersion, traceId,
-                    graphModeRequested, answerStrategyRequested, null
+                    graphModeRequested, answerStrategyRequested, null,
+                    ContextCompressionService.POLICY_VERSION
             );
         }
     }
@@ -281,8 +309,26 @@ public final class ChatPersistenceContracts {
             String snapshotHash,
             String counterVersion,
             int tokenCount,
-            String trimReasonsJson
+            String trimReasonsJson,
+            String compressionPolicyVersion,
+            UUID summaryId,
+            int summaryTokenCount,
+            int summarySourceCount,
+            String compressionStatus,
+            String compressionReasonCode
     ) {
+        public RunHistorySnapshot(
+                String messageIdsJson,
+                String snapshotHash,
+                String counterVersion,
+                int tokenCount,
+                String trimReasonsJson
+        ) {
+            this(
+                    messageIdsJson, snapshotHash, counterVersion, tokenCount,
+                    trimReasonsJson, null, null, 0, 0, null, null
+            );
+        }
     }
 
     public record RunQueryPlanSnapshot(

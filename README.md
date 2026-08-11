@@ -164,10 +164,13 @@ $env:LLM_API_KEY = "your-api-key"
 $env:LLM_LOCAL_ENDPOINT = "false"
 $env:LLM_REMOTE_EVIDENCE_ALLOWED = "true"
 $env:LLM_REMOTE_MEMORY_ALLOWED = "false"
+$env:LLM_REMOTE_CONVERSATION_CONTEXT_ALLOWED = "false"
 docker compose up -d --build backend evaluation-worker
 ```
 
-Never mark a remote endpoint as `LLM_LOCAL_ENDPOINT=true`. Enable `LLM_REMOTE_MEMORY_ALLOWED=true` only when personal memory is explicitly allowed to leave the machine; evidence and memory have independent permissions.
+Never mark a remote endpoint as `LLM_LOCAL_ENDPOINT=true`. Enable `LLM_REMOTE_MEMORY_ALLOWED=true` only when personal memory is explicitly allowed to leave the machine. Evidence, memory, and conversation context use three independent permissions; remote conversation history and rolling summaries remain blocked unless `LLM_REMOTE_CONVERSATION_CONTEXT_ALLOWED=true` is explicitly set.
+
+Long conversations use an asynchronous rolling summary plus the four most recent original messages. Every Answer and Deep Global Map/Reduce request is checked against the final serialized-request budget before it is sent. Compression is enabled by default and can be stopped immediately with `CONTEXT_COMPRESSION_ENABLED=false`; existing summaries remain stored but are not used while disabled.
 
 Graph extraction has separate `GRAPH_EXTRACTION_*` settings and its own remote-evidence permission. It does not inherit Chat's security switches.
 

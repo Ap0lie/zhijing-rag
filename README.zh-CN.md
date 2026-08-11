@@ -164,10 +164,13 @@ $env:LLM_API_KEY = "your-api-key"
 $env:LLM_LOCAL_ENDPOINT = "false"
 $env:LLM_REMOTE_EVIDENCE_ALLOWED = "true"
 $env:LLM_REMOTE_MEMORY_ALLOWED = "false"
+$env:LLM_REMOTE_CONVERSATION_CONTEXT_ALLOWED = "false"
 docker compose up -d --build backend evaluation-worker
 ```
 
-不得把远程 endpoint 标记为 `LLM_LOCAL_ENDPOINT=true`。只有在明确允许个人记忆离开本机时才启用 `LLM_REMOTE_MEMORY_ALLOWED=true`；Evidence 与 Memory 使用彼此独立的许可。
+不得把远程 endpoint 标记为 `LLM_LOCAL_ENDPOINT=true`。只有在明确允许个人记忆离开本机时才启用 `LLM_REMOTE_MEMORY_ALLOWED=true`。Evidence、Memory 和会话上下文使用三个相互独立的许可；除非显式设置 `LLM_REMOTE_CONVERSATION_CONTEXT_ALLOWED=true`，远程模型不能接收原始历史或滚动摘要。
+
+长会话使用“异步滚动摘要 + 最近 4 条原文”。每次 Answer 和 Deep Global Map/Reduce 调用都会在发送前按最终序列化请求核验上下文预算。压缩默认启用，可用 `CONTEXT_COMPRESSION_ENABLED=false` 立即停用；已有摘要会保留，但停用期间不会被使用。
 
 Graph extraction 使用独立的 `GRAPH_EXTRACTION_*` 配置与远程 Evidence 许可，不会继承 Chat 的安全开关。
 
