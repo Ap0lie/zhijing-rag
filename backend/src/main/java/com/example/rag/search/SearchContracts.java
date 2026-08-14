@@ -623,16 +623,46 @@ public final class SearchContracts {
             List<UUID> seedDocumentIds,
             int graphCandidateCount,
             int graphAddedCandidateCount,
-            int pathCount
+            int pathCount,
+            GraphEntityLinkShadowDiagnostics entityLinkShadow
     ) {
         public GraphDiagnostics {
             seedDocumentIds = seedDocumentIds == null
                     ? List.of()
                     : List.copyOf(seedDocumentIds);
+            entityLinkShadow = entityLinkShadow == null
+                    ? GraphEntityLinkShadowDiagnostics.notRequested()
+                    : entityLinkShadow;
         }
 
         public static GraphDiagnostics empty() {
-            return new GraphDiagnostics(0, List.of(), 0, 0, 0);
+            return new GraphDiagnostics(
+                    0, List.of(), 0, 0, 0,
+                    GraphEntityLinkShadowDiagnostics.notRequested()
+            );
+        }
+    }
+
+    public record GraphEntityLinkShadowDiagnostics(
+            boolean measured,
+            int seedEntityCount,
+            List<UUID> seedDocumentIds,
+            int addedSeedEntityCount,
+            List<String> matchModes,
+            String reasonCode
+    ) {
+        public GraphEntityLinkShadowDiagnostics {
+            seedDocumentIds = seedDocumentIds == null
+                    ? List.of() : List.copyOf(seedDocumentIds);
+            matchModes = matchModes == null
+                    ? List.of() : List.copyOf(matchModes);
+        }
+
+        public static GraphEntityLinkShadowDiagnostics notRequested() {
+            return new GraphEntityLinkShadowDiagnostics(
+                    false, 0, List.of(), 0, List.of(),
+                    "GRAPH_ENTITY_LINK_SHADOW_NOT_REQUESTED"
+            );
         }
     }
 

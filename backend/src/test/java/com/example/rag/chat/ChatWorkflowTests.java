@@ -6,6 +6,7 @@ import com.example.rag.chat.ChatModelProvider.ModelSegment;
 import com.example.rag.chat.ChatModelProvider.PreparedPrompt;
 import com.example.rag.chat.ChatPersistenceContracts.ChatMessage;
 import com.example.rag.chat.ChatPersistenceContracts.ChatRun;
+import com.example.rag.chat.ChatPersistenceContracts.ChatSession;
 import com.example.rag.chat.ChatPersistenceContracts.Citation;
 import com.example.rag.chat.ChatPersistenceContracts.CitationDraft;
 import com.example.rag.memory.MemoryPackService;
@@ -13,6 +14,7 @@ import com.example.rag.chat.ChatPersistenceContracts.MessageRole;
 import com.example.rag.chat.ChatPersistenceContracts.MessageStatus;
 import com.example.rag.chat.ChatPersistenceContracts.RunCompletion;
 import com.example.rag.chat.ChatPersistenceContracts.RunStatus;
+import com.example.rag.chat.ChatPersistenceContracts.SessionStatus;
 import com.example.rag.chat.ChatPersistenceContracts.StartedRun;
 import com.example.rag.document.SourceLocatorResponse;
 import com.example.rag.search.ChunkContextService;
@@ -28,6 +30,9 @@ import com.example.rag.security.PlatformUserPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -47,6 +52,82 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatWorkflowTests {
+
+    @Test
+    void schedulesCompressionOnlyForOnlineSessions() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID onlineSessionId = UUID.randomUUID();
+        UUID evaluationSessionId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        PlatformUserPrincipal user = mock(PlatformUserPrincipal.class);
+        when(user.id()).thenReturn(ownerId);
+        ChatPersistenceRepository repository =
+                mock(ChatPersistenceRepository.class);
+        ContextCompressionService compression =
+                mock(ContextCompressionService.class);
+        TransactionTemplate transactions = executingTransactions();
+        when(repository.finishRun(any(), any(), any())).thenReturn(true);
+        when(repository.findSession(ownerId, onlineSessionId)).thenReturn(
+                Optional.of(new ChatSession(
+                        onlineSessionId,
+                        ownerId,
+                        "Online",
+                        SessionStatus.ACTIVE,
+                        0,
+                        now,
+                        now
+                ))
+        );
+        when(repository.findSession(ownerId, evaluationSessionId))
+                .thenReturn(Optional.empty());
+
+        ChatWorkflow workflow = new ChatWorkflow(
+                mock(SearchService.class),
+                mock(ChunkContextService.class),
+                mock(ChatModelProvider.class),
+                repository,
+                historyWindows(),
+                mock(QueryIntelligenceProfileService.class),
+                mock(QueryRoutingService.class),
+                memoryPacks(),
+                mock(PromptContextPlanner.class),
+                compression,
+                transactions,
+                new ChatProperties(),
+                mock(ChatUserGuard.class),
+                new ObjectMapper().findAndRegisterModules()
+        );
+        RunCompletion completion = mock(RunCompletion.class);
+        StartedRun online = startedRun(
+                ownerId, onlineSessionId, UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), now
+        );
+        StartedRun evaluation = startedRun(
+                ownerId, evaluationSessionId, UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), now
+        );
+
+        assertThat(workflow.finishAndScheduleCompression(
+                new ChatWorkflow.RunInput(
+                        user, online, "Online question", "en"
+                ),
+                completion
+        )).isTrue();
+        assertThat(workflow.finishAndScheduleCompression(
+                new ChatWorkflow.RunInput(
+                        user, evaluation, "Evaluation question", "en"
+                ),
+                completion
+        )).isTrue();
+
+        verify(compression).prepare(user, onlineSessionId);
+        verify(compression, never()).prepare(user, evaluationSessionId);
+        verify(repository).finishRun(ownerId, online.run().id(), completion);
+        verify(repository).finishRun(
+                ownerId, evaluation.run().id(), completion
+        );
+    }
 
     @Test
     void spreadsheetCitationPrefersThePreciseCellRange() {
@@ -84,6 +165,189 @@ class ChatWorkflowTests {
         );
 
         assertThat(ChatWorkflow.citationAnchor(context)).isEqualTo(range);
+        assertThat(ChatWorkflow.citationSpan(
+                context, "工作表是什么？", List.of("工作表销售汇总")
+        )).isEqualTo(range);
+    }
+
+    @Test
+    void englishCitationSelectionUsesTheSupportingBodySpan() {
+        String title = "Reference";
+        String body = "Alice won seven games.";
+        String childText = title + "\n" + body;
+        SourceSpanView titleSpan = span(
+                0, 1, 0, title.length(), "d"
+        );
+        SourceSpanView bodySpan = span(
+                1, 1, title.length() + 1, childText.length(), "e"
+        );
+        ChunkContext context = context(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                title, 1, 1, List.of(titleSpan, bodySpan), childText
+        );
+
+        SourceSpanView selected = ChatWorkflow.citationSpan(
+                context,
+                "How many games did Alice win?",
+                List.of("Alice won seven games.")
+        );
+
+        assertThat(selected).isEqualTo(bodySpan);
+    }
+
+    @Test
+    void citationSelectionUsesStableAnchorWhenThereIsNoOverlap() {
+        String childText = "Title\nBody";
+        SourceSpanView first = span(0, 1, 0, 5, "f");
+        SourceSpanView second = span(1, 1, 6, 10, "g");
+        ChunkContext context = context(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "Title", 1, 1, List.of(second, first), childText
+        );
+
+        assertThat(ChatWorkflow.citationSpan(
+                context, "unrelated question", List.of("unknown answer")
+        )).isEqualTo(first);
+        assertThat(ChatWorkflow.citationSpan(
+                context, "unrelated question", List.of("unknown answer")
+        )).isEqualTo(first);
+    }
+
+    @Test
+    void invalidMixedCitationSegmentCannotInfluenceTopLevelAnchorText() {
+        UUID topLevel = UUID.randomUUID();
+        UUID graphCitation = UUID.randomUUID();
+        UUID invalid = UUID.randomUUID();
+
+        ModelSegment invalidSegment = ChatWorkflow.normalizeSegment(
+                new ModelSegment(
+                        "poison title text",
+                        List.of(topLevel, invalid)
+                ),
+                Set.of(topLevel, graphCitation),
+                Set.of()
+        );
+        ModelSegment validSegment = ChatWorkflow.normalizeSegment(
+                new ModelSegment(
+                        "valid supporting body",
+                        List.of(topLevel, graphCitation)
+                ),
+                Set.of(topLevel, graphCitation),
+                Set.of()
+        );
+
+        assertThat(invalidSegment).isNull();
+        assertThat(validSegment).isNotNull();
+        Map<UUID, List<String>> citedTexts = ChatWorkflow.citedTexts(
+                List.of(validSegment),
+                Set.of(topLevel)
+        );
+
+        assertThat(citedTexts).containsOnlyKeys(topLevel);
+        assertThat(citedTexts.get(topLevel))
+                .containsExactly("valid supporting body");
+    }
+
+    @Test
+    void segmentRejectedForUnauthorizedMemoryCannotSelectCitationSpan()
+            throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        UUID revisionId = UUID.randomUUID();
+        UUID childId = UUID.randomUUID();
+        UUID unauthorizedMemoryId = UUID.randomUUID();
+        Instant now = Instant.now();
+        StartedRun started = startedRun(
+                ownerId, sessionId, UUID.randomUUID(),
+                UUID.randomUUID(), runId, now
+        );
+        PlatformUserPrincipal user = mock(PlatformUserPrincipal.class);
+        when(user.id()).thenReturn(ownerId);
+        when(user.isEnabled()).thenReturn(true);
+
+        String poisonText = "poison alpha beta gamma delta";
+        String validText = "safe";
+        String childText = poisonText + "\n" + validText;
+        SourceSpanView poisonSpan = span(
+                0, 1, 0, poisonText.length(), "j"
+        );
+        SourceSpanView validSpan = span(
+                1, 1, poisonText.length() + 1, childText.length(), "k"
+        );
+        ChunkContext context = context(
+                documentId, revisionId, childId, "Reference", 1, 1,
+                List.of(poisonSpan, validSpan), childText
+        );
+        SearchService search = mock(SearchService.class);
+        when(search.search(any(), any(), any(), any())).thenReturn(
+                new SearchPage(
+                        List.of(hit(context)), 0, 8, 1, 1, 1,
+                        "hybrid-v1", 1, "HYBRID", "HYBRID",
+                        false, null, "EXACT"
+                )
+        );
+        ChunkContextService chunks = mock(ChunkContextService.class);
+        when(chunks.get(childId, user)).thenReturn(context);
+        ChatModelProvider model = mock(ChatModelProvider.class);
+        when(model.answer(any(PreparedPrompt.class))).thenAnswer(invocation -> {
+            UUID citationId = ((PreparedPrompt) invocation.getArgument(0))
+                    .evidence().getFirst().citationId();
+            return new ModelAnswer(
+                    List.of(
+                            new ModelSegment(
+                                    poisonText,
+                                    List.of(citationId),
+                                    List.of(unauthorizedMemoryId)
+                            ),
+                            new ModelSegment(
+                                    validText,
+                                    List.of(citationId),
+                                    List.of()
+                            )
+                    ),
+                    null
+            );
+        });
+        ChatPersistenceRepository repository =
+                mock(ChatPersistenceRepository.class);
+        when(repository.findRun(ownerId, runId))
+                .thenReturn(Optional.of(started.run()));
+        when(repository.saveCitationWhitelist(eq(ownerId), eq(runId), any()))
+                .thenReturn(List.of());
+        when(repository.finishRun(any(), any(), any())).thenReturn(true);
+        ChatWorkflow workflow = new ChatWorkflow(
+                search,
+                chunks,
+                model,
+                repository,
+                historyWindows(),
+                mock(QueryIntelligenceProfileService.class),
+                mock(QueryRoutingService.class),
+                memoryPacks(),
+                new ChatProperties(),
+                mock(ChatUserGuard.class),
+                new ObjectMapper().findAndRegisterModules()
+        );
+
+        ChatWorkflow.PersistedOutcome outcome = workflow.execute(
+                new ChatWorkflow.RunInput(
+                        user, started, "unrelated question", "en"
+                )
+        );
+
+        assertThat(outcome.content()).isEqualTo("safe[1]");
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<List> draftsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveCitationWhitelist(
+                eq(ownerId), eq(runId), draftsCaptor.capture()
+        );
+        @SuppressWarnings("unchecked")
+        List<CitationDraft> drafts = draftsCaptor.getValue();
+        assertThat(drafts).singleElement().satisfies(draft ->
+                assertThat(draft.sourceSpanId()).isEqualTo(validSpan.id())
+        );
     }
 
     @Test
@@ -404,6 +668,91 @@ class ChatWorkflowTests {
     }
 
     @Test
+    void selectedBodySpanIsRejectedWhenItIsNoLongerCurrent()
+            throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        UUID revisionId = UUID.randomUUID();
+        UUID childId = UUID.randomUUID();
+        Instant now = Instant.now();
+        StartedRun started = startedRun(
+                ownerId, sessionId, UUID.randomUUID(),
+                UUID.randomUUID(), runId, now
+        );
+        PlatformUserPrincipal user = mock(PlatformUserPrincipal.class);
+        when(user.id()).thenReturn(ownerId);
+        when(user.isEnabled()).thenReturn(true);
+
+        String childText = "标题\n正文支持结论";
+        SourceSpanView titleSpan = span(0, 1, 0, 2, "h");
+        SourceSpanView bodySpan = span(
+                1, 1, 3, childText.length(), "i"
+        );
+        ChunkContext initial = context(
+                documentId, revisionId, childId, "标题", 1, 1,
+                List.of(titleSpan, bodySpan), childText
+        );
+        ChunkContext afterWithdrawal = context(
+                documentId, revisionId, childId, "标题", 1, 1,
+                List.of(titleSpan), childText
+        );
+        SearchService search = mock(SearchService.class);
+        when(search.search(any(), any(), any(), any())).thenReturn(
+                new SearchPage(
+                        List.of(hit(initial)), 0, 8, 1, 1, 1,
+                        "hybrid-v1", 1, "HYBRID", "HYBRID",
+                        false, null, "EXACT"
+                )
+        );
+        ChunkContextService chunks = mock(ChunkContextService.class);
+        when(chunks.get(childId, user))
+                .thenReturn(initial, afterWithdrawal);
+        ChatModelProvider model = mock(ChatModelProvider.class);
+        when(model.answer(any(PreparedPrompt.class))).thenAnswer(invocation -> {
+            PreparedPrompt prompt = invocation.getArgument(0);
+            return new ModelAnswer(
+                    List.of(new ModelSegment(
+                            "正文支持结论。",
+                            List.of(prompt.evidence().getFirst().citationId())
+                    )),
+                    null
+            );
+        });
+        ChatPersistenceRepository repository =
+                mock(ChatPersistenceRepository.class);
+        when(repository.findRun(ownerId, runId))
+                .thenReturn(Optional.of(started.run()));
+        when(repository.finishRun(any(), any(), any())).thenReturn(true);
+        ChatWorkflow workflow = new ChatWorkflow(
+                search,
+                chunks,
+                model,
+                repository,
+                historyWindows(),
+                mock(QueryIntelligenceProfileService.class),
+                mock(QueryRoutingService.class),
+                memoryPacks(),
+                new ChatProperties(),
+                mock(ChatUserGuard.class),
+                new ObjectMapper().findAndRegisterModules()
+        );
+
+        ChatWorkflow.PersistedOutcome outcome = workflow.execute(
+                new ChatWorkflow.RunInput(
+                        user, started, "原文如何说明正文结论？", "zh"
+                )
+        );
+
+        assertThat(outcome.status()).isEqualTo(RunStatus.REFUSED);
+        assertThat(outcome.refusalCode()).isEqualTo("UNSUPPORTED_ANSWER");
+        verify(repository, never()).saveCitationWhitelist(
+                any(), any(), any()
+        );
+    }
+
+    @Test
     void numbersCitationsAndPersistsOnlyUsedSourceSpans()
             throws Exception {
         UUID ownerId = UUID.randomUUID();
@@ -428,8 +777,8 @@ class ChatWorkflowTests {
         UUID documentA = UUID.randomUUID();
         UUID revisionA = UUID.randomUUID();
         UUID childA = UUID.randomUUID();
-        SourceSpanView spanA1 = span(0, 2, "a");
-        SourceSpanView spanA2 = span(1, 3, "b");
+        SourceSpanView spanA1 = span(0, 2, 0, 3, "a");
+        SourceSpanView spanA2 = span(1, 3, 4, 9, "b");
         ChunkContext contextA = context(
                 documentA,
                 revisionA,
@@ -437,7 +786,8 @@ class ChatWorkflowTests {
                 "甲文档",
                 2,
                 3,
-                List.of(spanA2, spanA1)
+                List.of(spanA2, spanA1),
+                "甲文档\n甲乙结论。"
         );
 
         UUID documentB = UUID.randomUUID();
@@ -476,8 +826,10 @@ class ChatWorkflowTests {
 
         ChatModelProvider model = mock(ChatModelProvider.class);
         when(model.answer(any(PreparedPrompt.class))).thenAnswer(invocation -> {
-            List<ModelEvidence> evidence = ((PreparedPrompt)
-                    invocation.getArgument(0)).evidence();
+            PreparedPrompt prompt = invocation.getArgument(0);
+            List<ModelEvidence> evidence = prompt.evidence();
+            assertThat(prompt.inputTokenCount())
+                    .isLessThanOrEqualTo(prompt.inputTokenCap());
             return new ModelAnswer(
                     List.of(
                             new ModelSegment(
@@ -580,7 +932,7 @@ class ChatWorkflowTests {
         List<CitationDraft> drafts = draftsCaptor.getValue();
         assertThat(drafts)
                 .extracting(CitationDraft::sourceSpanId)
-                .containsExactly(spanB.id(), spanA1.id());
+                .containsExactly(spanB.id(), spanA2.id());
 
         ArgumentCaptor<RunCompletion> completionCaptor =
                 ArgumentCaptor.forClass(RunCompletion.class);
@@ -597,15 +949,15 @@ class ChatWorkflowTests {
         RunCompletion completion = completionCaptor.getValue();
         assertThat(completion.responseContent()).isEqualTo(outcome.content());
         assertThat(completion.finalSourceSpansJson()).isEqualTo(
-                "[\"" + spanB.id() + "\",\"" + spanA1.id() + "\"]"
+                "[\"" + spanB.id() + "\",\"" + spanA2.id() + "\"]"
         );
 
         Citation citationA = outcome.citations().get(1);
         assertThat(ChatService.citationSummary(citationA, contextA))
                 .satisfies(summary -> {
-                    assertThat(summary.startPage()).isEqualTo(2);
-                    assertThat(summary.endPage()).isEqualTo(2);
-                    assertThat(summary.label()).contains("[2]", "第 2 页");
+                    assertThat(summary.startPage()).isEqualTo(3);
+                    assertThat(summary.endPage()).isEqualTo(3);
+                    assertThat(summary.label()).contains("[2]", "第 3 页");
                 });
     }
 
@@ -831,6 +1183,16 @@ class ChatWorkflowTests {
     }
 
     private static SourceSpanView span(int order, int page, String hashSeed) {
+        return span(order, page, 0, 9, hashSeed);
+    }
+
+    private static SourceSpanView span(
+            int order,
+            int page,
+            int chunkStartOffset,
+            int chunkEndOffset,
+            String hashSeed
+    ) {
         return new SourceSpanView(
                 UUID.randomUUID(),
                 order,
@@ -838,8 +1200,8 @@ class ChatWorkflowTests {
                 page,
                 order * 10,
                 order * 10 + 9,
-                0,
-                9,
+                chunkStartOffset,
+                chunkEndOffset,
                 hashSeed.repeat(64)
         );
     }
@@ -887,6 +1249,22 @@ class ChatWorkflowTests {
             int endPage,
             List<SourceSpanView> sourceSpans
     ) {
+        return context(
+                documentId, revisionId, childId, title,
+                startPage, endPage, sourceSpans, title + "正文"
+        );
+    }
+
+    private static ChunkContext context(
+            UUID documentId,
+            UUID revisionId,
+            UUID childId,
+            String title,
+            int startPage,
+            int endPage,
+            List<SourceSpanView> sourceSpans,
+            String childText
+    ) {
         return new ChunkContext(
                 documentId,
                 title,
@@ -896,7 +1274,7 @@ class ChatWorkflowTests {
                         childId,
                         "CHILD",
                         0,
-                        title + "正文",
+                        childText,
                         List.of(title),
                         startPage,
                         endPage,
@@ -953,5 +1331,14 @@ class ChatWorkflowTests {
                 org.mockito.ArgumentMatchers.any(UUID.class)
         )).thenReturn(List.of());
         return service;
+    }
+
+    private static TransactionTemplate executingTransactions() {
+        TransactionTemplate transactions = mock(TransactionTemplate.class);
+        when(transactions.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+        return transactions;
     }
 }

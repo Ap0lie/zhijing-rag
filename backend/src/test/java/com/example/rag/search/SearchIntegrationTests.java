@@ -2,6 +2,10 @@ package com.example.rag.search;
 
 import com.example.rag.common.ApiException;
 import com.example.rag.document.StorageProperties;
+import com.example.rag.graph.GraphRetrievalContracts.ProfileView;
+import com.example.rag.graph.LocalGraphRetrievalService;
+import com.example.rag.graph.LocalGraphRetrievalService.Expansion;
+import com.example.rag.graph.LocalGraphRetrievalService.ShadowSeedDiagnostics;
 import com.example.rag.persistence.PipelineStage;
 import com.example.rag.persistence.UserEntity;
 import com.example.rag.persistence.UserRepository;
@@ -19,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -62,7 +67,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -121,6 +128,9 @@ class SearchIntegrationTests {
     @MockitoSpyBean
     private SearchAccessService access;
 
+    @MockitoSpyBean
+    private LocalGraphRetrievalService graphs;
+
     private UserEntity admin;
     private UserEntity reader;
     private UserEntity outsider;
@@ -164,6 +174,7 @@ class SearchIntegrationTests {
         reset(reranker);
         reset(contexts);
         reset(access);
+        reset(graphs);
         circuits.reset();
         searchProperties.setGenerationWorkerEnabled(false);
         resetDedicatedTestState();
@@ -394,6 +405,125 @@ class SearchIntegrationTests {
         assertThat(debug.path("candidates"))
                 .allSatisfy(candidate ->
                         assertThat(candidate.path("result").isMissingNode()).isFalse()
+                );
+    }
+
+    @Test
+    void entityLinkShadowDelayDoesNotConsumeRetrievalBudgetOrChangeEvidence()
+            throws Exception {
+        publishPhase6c();
+        String query = "traceable evidence";
+        var active = indexes.activeIndex().orElseThrow();
+        long graphGeneration = 987L;
+        String graphProfileVersion = "entity-link-shadow-test-v1";
+        ProfileView graphProfile = new ProfileView(
+                graphProfileVersion,
+                5,
+                2,
+                20,
+                40,
+                30,
+                0.6,
+                0,
+                0,
+                250,
+                "Evaluation-only entity-link shadow",
+                Instant.EPOCH
+        );
+        Expansion graphResult = new Expansion(
+                graphProfile,
+                graphGeneration,
+                0,
+                List.of(),
+                List.of(),
+                0,
+                List.of(),
+                "GRAPH_NO_SEED",
+                1
+        );
+        doReturn(graphResult).when(graphs).expand(
+                eq(query),
+                anyList(),
+                anyList(),
+                eq(graphProfileVersion),
+                eq(graphGeneration)
+        );
+        ShadowSeedDiagnostics shadow = ShadowSeedDiagnostics.measured(
+                1,
+                List.of(fixture.publicDocumentId()),
+                1,
+                List.of("ACRONYM")
+        );
+        doReturn(shadow).when(graphs).diagnoseEntityLinks(
+                eq(query), anyList(), any(Expansion.class)
+        );
+        var target = new SearchService.EvaluationTarget(
+                "phase6c-hybrid-rerank-v1",
+                active.generation(),
+                active.indexName(),
+                active.indexConfigVersion(),
+                graphProfileVersion,
+                graphGeneration,
+                null,
+                null,
+                SearchService.EvaluationFault.NONE
+        );
+        SearchContracts.SearchRequest request = new SearchContracts.SearchRequest(
+                query, 0, 8, null, null, SearchContracts.GraphMode.LOCAL_GRAPH
+        );
+
+        var baseline = searchService.evaluate(
+                request, principal(outsider), target
+        );
+        clearInvocations(reranker, contexts, graphs);
+        doAnswer(invocation -> {
+            Thread.sleep(250);
+            return shadow;
+        }).when(graphs).diagnoseEntityLinks(
+                eq(query), anyList(), any(Expansion.class)
+        );
+
+        long wallStarted = System.nanoTime();
+        var delayed = searchService.evaluate(
+                request, principal(outsider), target
+        );
+        long wallMs = TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - wallStarted
+        );
+
+        assertThat(delayed.result().items())
+                .extracting(SearchContracts.SearchHit::chunkId)
+                .containsExactlyElementsOf(baseline.result().items().stream()
+                        .map(SearchContracts.SearchHit::chunkId)
+                        .toList());
+        assertThat(wallMs - delayed.result().tookMs())
+                .isGreaterThanOrEqualTo(180);
+        InOrder order = inOrder(reranker, contexts, graphs);
+        order.verify(reranker).rerank(eq(query), anyList());
+        order.verify(contexts).load(anyList());
+        order.verify(graphs).diagnoseEntityLinks(
+                eq(query), anyList(), any(Expansion.class)
+        );
+
+        ShadowSeedDiagnostics limited = ShadowSeedDiagnostics.unavailable(
+                "GRAPH_ENTITY_LINK_SHADOW_MATCH_LIMIT"
+        );
+        doReturn(limited).when(graphs).diagnoseEntityLinks(
+                eq(query), anyList(), any(Expansion.class)
+        );
+        var limitedResponse = searchService.evaluate(
+                request, principal(outsider), target
+        );
+        assertThat(limitedResponse.result().items())
+                .extracting(SearchContracts.SearchHit::chunkId)
+                .containsExactlyElementsOf(baseline.result().items().stream()
+                        .map(SearchContracts.SearchHit::chunkId)
+                        .toList());
+        assertThat(limitedResponse.graphDiagnostics().entityLinkShadow()
+                .measured()).isFalse();
+        assertThat(limitedResponse.graphDiagnostics().entityLinkShadow()
+                .reasonCode()).isEqualTo(
+                        "GRAPH_ENTITY_LINK_SHADOW_MATCH_LIMIT"
                 );
     }
 

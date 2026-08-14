@@ -1017,7 +1017,9 @@ class ContextCompressionService {
                 SELECT status, error_code, updated_at
                 FROM chat_context_summary_jobs
                 WHERE owner_user_id = ? AND session_id = ?
-                ORDER BY created_at DESC, id DESC
+                ORDER BY CASE WHEN status IN ('PENDING', 'RUNNING')
+                              THEN 0 ELSE 1 END,
+                         created_at DESC, id DESC
                 LIMIT 1
                 """,
                 (rs, row) -> new JobState(

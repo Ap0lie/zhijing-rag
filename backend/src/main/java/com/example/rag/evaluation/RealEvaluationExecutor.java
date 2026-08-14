@@ -53,6 +53,7 @@ class RealEvaluationExecutor {
     private final Optional<QueryRoutingService> routing;
     private final QueryIntelligenceProfileService queryProfiles;
     private final MultiformatSecurityProbe securityProbe;
+    private final EvaluationSupportingFactResolver supportingFactResolver;
 
     RealEvaluationExecutor(
             JdbcTemplate jdbc,
@@ -62,7 +63,8 @@ class RealEvaluationExecutor {
             Optional<ChatEvaluationGateway> chat,
             Optional<QueryRoutingService> routing,
             QueryIntelligenceProfileService queryProfiles,
-            MultiformatSecurityProbe securityProbe
+            MultiformatSecurityProbe securityProbe,
+            EvaluationSupportingFactResolver supportingFactResolver
     ) {
         this.jdbc = jdbc;
         this.users = users;
@@ -72,6 +74,7 @@ class RealEvaluationExecutor {
         this.routing = routing;
         this.queryProfiles = queryProfiles;
         this.securityProbe = securityProbe;
+        this.supportingFactResolver = supportingFactResolver;
     }
 
     CaseEvaluation evaluate(ClaimedRun run, CaseWork work) {
@@ -127,6 +130,25 @@ class RealEvaluationExecutor {
                     missing
             );
         }
+        EvaluationSupportingFactResolver.Resolution supportingFacts =
+                supportingFactResolver.resolve(
+                        work.metadata(),
+                        evidence.entrySet().stream().collect(
+                                LinkedHashMap::new,
+                                (result, entry) -> result.put(
+                                        entry.getKey(),
+                                        entry.getValue().revisionId()
+                                ),
+                                Map::putAll
+                        )
+                );
+        if (!supportingFacts.complete()) {
+            return blocked(
+                    work,
+                    "SUPPORTING_FACT_MAPPING_UNAVAILABLE",
+                    supportingFacts.blockingKeys()
+            );
+        }
         try {
             PlatformUserPrincipal user = principal(context.createdBy());
             SearchService.EvaluationTarget searchTarget =
@@ -145,12 +167,12 @@ class RealEvaluationExecutor {
                     run.subjectType()
             )) {
                 return answer(
-                        run, work, query, evidence, graphMode,
+                        run, work, query, evidence, supportingFacts, graphMode,
                         searchTarget, user, context.target()
                 );
             }
             return retrieval(
-                    work, query, evidence, graphMode,
+                    work, query, evidence, supportingFacts, graphMode,
                     searchTarget, user, context.target()
             );
         } catch (RuntimeException exception) {
@@ -741,6 +763,7 @@ class RealEvaluationExecutor {
             CaseWork work,
             String query,
             Map<String, EvidenceRevision> evidence,
+            EvaluationSupportingFactResolver.Resolution supportingFacts,
             GraphMode graphMode,
             SearchService.EvaluationTarget target,
             PlatformUserPrincipal user,
@@ -805,6 +828,9 @@ class RealEvaluationExecutor {
         StageRecall stageRecall = stageRecall(
                 response.candidates(), expectedRevisions
         );
+        SupportingStageRecall supportingStageRecall = supportingStageRecall(
+                response.candidates(), supportingFacts
+        );
         GraphRecall graphRecall = graphRecall(
                 response, expectedDocuments, expectedRevisions
         );
@@ -842,12 +868,47 @@ class RealEvaluationExecutor {
                 "hotpotqa.retrieval.evidence_recall",
                 stageRecall.evidence(), expectedRevisions.size()
         ));
+        if (supportingFacts.applicable()) {
+            addSupportingStageMetrics(
+                    metrics, supportingStageRecall,
+                    supportingFacts.expectedCount()
+            );
+        }
         if (graphMode == GraphMode.LOCAL_GRAPH) {
             metrics.add(observedRecall(
                     "hotpotqa.graph.entity_seed_recall",
                     graphRecall.seededDocuments(),
                     expectedDocuments.size()
             ));
+            metrics.add(observedSupportingSourceDocumentRecall(
+                    "hotpotqa.graph.seed_source_document_recall",
+                    graphRecall.seededDocuments(),
+                    expectedDocuments.size()
+            ));
+            var shadow = response.graphDiagnostics().entityLinkShadow();
+            if (shadow.measured()) {
+                int matchedShadowDocuments = (int) shadow.seedDocumentIds()
+                        .stream()
+                        .filter(expectedDocuments::contains)
+                        .distinct()
+                        .count();
+                metrics.add(observedSupportingSourceDocumentRecall(
+                        "hotpotqa.graph.shadow_seed_source_document_recall",
+                        matchedShadowDocuments,
+                        expectedDocuments.size()
+                ));
+                metrics.add(observedCount(
+                        "hotpotqa.graph.shadow_added_seed_entity_count",
+                        shadow.addedSeedEntityCount()
+                ));
+            } else {
+                metrics.add(notMeasured(
+                        "hotpotqa.graph.shadow_seed_source_document_recall",
+                        shadow.reasonCode() == null
+                                ? "GRAPH_ENTITY_LINK_SHADOW_NOT_MEASURED"
+                                : shadow.reasonCode()
+                ));
+            }
             metrics.add(observedRecall(
                     "hotpotqa.graph.candidate_gold_recall",
                     graphRecall.graphCandidates(),
@@ -926,19 +987,52 @@ class RealEvaluationExecutor {
         stageOutput.put("reranked", stageRecall.reranked());
         stageOutput.put("evidence", stageRecall.evidence());
         output.put("stageRecall", Map.copyOf(stageOutput));
-        if (graphMode == GraphMode.LOCAL_GRAPH) {
-            output.put("graphDiagnostics", Map.of(
-                    "expectedDocuments", expectedDocuments.size(),
-                    "expectedRevisions", expectedRevisions.size(),
-                    "seededDocuments", graphRecall.seededDocuments(),
-                    "graphCandidateGoldRevisions",
-                    graphRecall.graphCandidates(),
-                    "pathDocuments", graphRecall.pathDocuments(),
-                    "rerankedPathGoldRevisions", stageRecall.reranked(),
-                    "evidencePathGoldRevisions", stageRecall.evidence(),
-                    "addedCandidates", graphRecall.addedCandidates(),
-                    "pathCount", graphRecall.pathCount()
+        if (supportingFacts.applicable()) {
+            output.put("supportingSpanStageRecall", Map.of(
+                    "expected", supportingFacts.expectedCount(),
+                    "bm25", supportingStageRecall.bm25(),
+                    "vector", supportingStageRecall.vector(),
+                    "authorizedCandidates",
+                    supportingStageRecall.authorized(),
+                    "reranked", supportingStageRecall.reranked(),
+                    "evidence", supportingStageRecall.evidence()
             ));
+        }
+        if (graphMode == GraphMode.LOCAL_GRAPH) {
+            Map<String, Object> graphOutput = new LinkedHashMap<>();
+            graphOutput.put("expectedDocuments", expectedDocuments.size());
+            graphOutput.put("expectedRevisions", expectedRevisions.size());
+            graphOutput.put("seededDocuments", graphRecall.seededDocuments());
+            graphOutput.put(
+                    "graphCandidateGoldRevisions",
+                    graphRecall.graphCandidates()
+            );
+            graphOutput.put("pathDocuments", graphRecall.pathDocuments());
+            graphOutput.put(
+                    "rerankedPathGoldRevisions", stageRecall.reranked()
+            );
+            graphOutput.put(
+                    "evidencePathGoldRevisions", stageRecall.evidence()
+            );
+            graphOutput.put("addedCandidates", graphRecall.addedCandidates());
+            graphOutput.put("pathCount", graphRecall.pathCount());
+            var shadow = response.graphDiagnostics().entityLinkShadow();
+            Map<String, Object> shadowOutput = new LinkedHashMap<>();
+            shadowOutput.put("measured", shadow.measured());
+            shadowOutput.put("seedEntityCount", shadow.seedEntityCount());
+            shadowOutput.put(
+                    "seedSourceDocumentCount",
+                    shadow.seedDocumentIds().size()
+            );
+            shadowOutput.put(
+                    "addedSeedEntityCount", shadow.addedSeedEntityCount()
+            );
+            shadowOutput.put("matchModes", shadow.matchModes());
+            if (shadow.reasonCode() != null) {
+                shadowOutput.put("reasonCode", shadow.reasonCode());
+            }
+            graphOutput.put("entityLinkShadow", shadowOutput);
+            output.put("graphDiagnostics", graphOutput);
         }
         output.put("degraded", response.result().degraded());
         output.put("degradationCode", response.result().degradationCode());
@@ -987,6 +1081,78 @@ class RealEvaluationExecutor {
                         DebugCandidate::accepted
                 )
         );
+    }
+
+    private static SupportingStageRecall supportingStageRecall(
+            List<DebugCandidate> candidates,
+            EvaluationSupportingFactResolver.Resolution facts
+    ) {
+        if (!facts.applicable()) {
+            return new SupportingStageRecall(0, 0, 0, 0, 0);
+        }
+        return new SupportingStageRecall(
+                matchedSupportingFacts(
+                        candidates, facts,
+                        candidate -> candidate.bm25Rank() != null
+                ),
+                matchedSupportingFacts(
+                        candidates, facts,
+                        candidate -> candidate.vectorRank() != null
+                ),
+                matchedSupportingFacts(candidates, facts, candidate -> true),
+                matchedSupportingFacts(
+                        candidates, facts,
+                        candidate -> candidate.rerankRank() != null
+                ),
+                matchedSupportingFacts(
+                        candidates, facts, DebugCandidate::accepted
+                )
+        );
+    }
+
+    private static int matchedSupportingFacts(
+            List<DebugCandidate> candidates,
+            EvaluationSupportingFactResolver.Resolution facts,
+            java.util.function.Predicate<DebugCandidate> included
+    ) {
+        Set<UUID> chunkIds = candidates.stream()
+                .filter(included)
+                .map(DebugCandidate::result)
+                .filter(java.util.Objects::nonNull)
+                .map(SearchHit::chunkId)
+                .collect(
+                        LinkedHashSet::new,
+                        Set::add,
+                        Set::addAll
+                );
+        return facts.matchedByChunks(chunkIds);
+    }
+
+    private static void addSupportingStageMetrics(
+            List<MetricResult> metrics,
+            SupportingStageRecall recall,
+            int expected
+    ) {
+        Map<String, Integer> stages = new LinkedHashMap<>();
+        stages.put("bm25", recall.bm25());
+        stages.put("vector", recall.vector());
+        stages.put("authorized_candidate", recall.authorized());
+        stages.put("reranked", recall.reranked());
+        stages.put("evidence", recall.evidence());
+        for (Map.Entry<String, Integer> stage : stages.entrySet()) {
+            metrics.add(observedSupportingRecall(
+                    "hotpotqa.supporting_child."
+                            + stage.getKey() + "_recall",
+                    stage.getValue(), expected,
+                    "CORPUS_FACT_COVERED_BY_CHILD_SET"
+            ));
+            metrics.add(observedSupportingRecall(
+                    "hotpotqa.supporting_span."
+                            + stage.getKey() + "_recall",
+                    stage.getValue(), expected,
+                    "CORPUS_FACT_COVERED_BY_SOURCE_SPAN_CLOSURE"
+            ));
+        }
     }
 
     private static int matchedRevisions(
@@ -1053,6 +1219,42 @@ class RealEvaluationExecutor {
         );
     }
 
+    private static MetricResult observedSupportingRecall(
+            String key,
+            int matched,
+            int expected,
+            String unit
+    ) {
+        return new MetricResult(
+                key,
+                "MEASURED",
+                expected == 0 ? 0.0 : (double) matched / expected,
+                Map.of(
+                        "matchedSupportingFacts", matched,
+                        "expectedSupportingFacts", expected,
+                        "unit", unit,
+                        "blocking", false
+                )
+        );
+    }
+
+    private static MetricResult observedSupportingSourceDocumentRecall(
+            String key,
+            int matched,
+            int expected
+    ) {
+        return new MetricResult(
+                key,
+                "MEASURED",
+                expected == 0 ? 0.0 : (double) matched / expected,
+                Map.of(
+                        "matchedSupportingSourceDocuments", matched,
+                        "expectedSupportingSourceDocuments", expected,
+                        "blocking", false
+                )
+        );
+    }
+
     private static MetricResult observedCount(String key, int value) {
         return new MetricResult(
                 key,
@@ -1075,6 +1277,15 @@ class RealEvaluationExecutor {
     }
 
     private record StageRecall(
+            int bm25,
+            int vector,
+            int authorized,
+            int reranked,
+            int evidence
+    ) {
+    }
+
+    private record SupportingStageRecall(
             int bm25,
             int vector,
             int authorized,
@@ -1141,6 +1352,7 @@ class RealEvaluationExecutor {
             CaseWork work,
             String query,
             Map<String, EvidenceRevision> evidence,
+            EvaluationSupportingFactResolver.Resolution supportingFacts,
             GraphMode graphMode,
             SearchService.EvaluationTarget target,
             PlatformUserPrincipal user,
@@ -1216,6 +1428,26 @@ class RealEvaluationExecutor {
                         "matchedRevisions", matched
                 )
         ));
+        int citedSupportingFacts = 0;
+        if (supportingFacts.applicable()) {
+            Set<UUID> citedSpanIds = result.citations().stream()
+                    .map(ChatEvaluationGateway.CitationReference::sourceSpanId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(
+                            LinkedHashSet::new,
+                            Set::add,
+                            Set::addAll
+                    );
+            citedSupportingFacts = supportingFacts.matchedBySpans(
+                    citedSpanIds
+            );
+            metrics.add(observedSupportingRecall(
+                    "hotpotqa.supporting_span.citation_recall",
+                    citedSupportingFacts,
+                    supportingFacts.expectedCount(),
+                    "CORPUS_FACT_COVERED_BY_CITED_SOURCE_SPAN_SET"
+            ));
+        }
         String expectedAnswer = text(work.expected().get("expectedAnswer"));
         if (!expectedAnswer.isBlank()) {
             String directAnswer = result.directAnswer() == null
@@ -1270,6 +1502,11 @@ class RealEvaluationExecutor {
                         .distinct().map(UUID::toString).toList()
         );
         output.put("matchedExpectedRevisions", matched);
+        if (supportingFacts.applicable()) {
+            output.put("expectedSupportingFacts",
+                    supportingFacts.expectedCount());
+            output.put("citedSupportingFacts", citedSupportingFacts);
+        }
         if (!expectedAnswer.isBlank()) {
             output.put("expectedAnswerHash", sha256(expectedAnswer));
             output.put("answerHash", sha256(result.answerContent()));

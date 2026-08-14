@@ -32,9 +32,11 @@ MODES: dict[str, dict[str, str]] = {}
 
 def configure(version: int) -> None:
     global RESOURCE, REPORT, MODES
+    # v3 evaluates the frozen v2 corpus with supporting-span expectations.
+    corpus_version = min(version, 2)
     RESOURCE = (
         ROOT / "backend/src/test/resources/hotpotqa-golden"
-        / f"v{version}" / "dataset.json"
+        / f"v{corpus_version}" / "dataset.json"
     )
     REPORT = (
         ROOT / "data/public-golden/work" / f"hotpotqa-v{version}"
@@ -227,7 +229,7 @@ def summarize(
         degraded = bool(output.get("graphDegraded") or output.get("degraded"))
         graph = output.get("graphDiagnostics") or {}
         case_metadata = metadata.get(result["caseKey"], {})
-        cases.append({
+        case = {
             "caseKey": result["caseKey"],
             "status": result["status"],
             "errorCode": result.get("errorCode"),
@@ -247,7 +249,12 @@ def summarize(
             "graphDiagnostics": graph or None,
             "questionType": case_metadata.get("questionType"),
             "cohort": case_metadata.get("cohort"),
-        })
+        }
+        if config["datasetVersion"].endswith("-v3"):
+            case["supportingSpanStageRecall"] = output.get(
+                "supportingSpanStageRecall"
+            )
+        cases.append(case)
     metrics = retrieval_metrics(cases)
     return {
         "mode": mode,
@@ -420,7 +427,7 @@ def parse_args() -> argparse.Namespace:
         "--graph-config-version", default="phase8-deepseek-v4-flash-v2"
     )
     parser.add_argument("--graph-build-timeout", type=int, default=7200)
-    parser.add_argument("--suite", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--suite", choices=("v1", "v2", "v3"), default="v1")
     parser.add_argument(
         "--modes", nargs="+", choices=("HYBRID", "LOCAL_GRAPH"),
         default=("HYBRID", "LOCAL_GRAPH"),
@@ -456,6 +463,11 @@ def main() -> int:
     }
     report = {
         "generatedAtEpochSeconds": int(time.time()),
+        "suiteVersion": args.suite,
+        "catalogDatasetVersions": {
+            mode: MODES[mode]["datasetVersion"] for mode in runs
+        },
+        "corpusSuiteVersion": source["suiteVersion"],
         "source": source["source"],
         "selection": source["selection"],
         "graphGeneration": graph_generation,

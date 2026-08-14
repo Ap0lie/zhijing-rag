@@ -17,11 +17,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Component
@@ -82,6 +85,13 @@ class EvaluationCatalogImporter {
                     List.of("hotpotqa-golden/v2/dataset.json")
             ),
             new CatalogEntry(
+                    "hotpotqa-answer-golden", "HotpotQA Answer & Citation",
+                    "HotpotQA distractor validation 的可解释英文多跳问答候选",
+                    "hotpotqa-answer-citation-v3", "ANSWER_CITATION",
+                    "CC-BY-SA-4.0",
+                    List.of("hotpotqa-golden/v2/dataset.json")
+            ),
+            new CatalogEntry(
                     "hotpotqa-retrieval-golden", "HotpotQA Hybrid Retrieval",
                     "HotpotQA distractor validation 的 Hybrid 多跳召回对照",
                     "hotpotqa-retrieval-v1", "RETRIEVAL",
@@ -96,6 +106,13 @@ class EvaluationCatalogImporter {
                     List.of("hotpotqa-golden/v2/dataset.json")
             ),
             new CatalogEntry(
+                    "hotpotqa-retrieval-golden", "HotpotQA Hybrid Retrieval",
+                    "HotpotQA distractor validation 的 Hybrid 多跳召回对照",
+                    "hotpotqa-retrieval-v3", "RETRIEVAL",
+                    "CC-BY-SA-4.0",
+                    List.of("hotpotqa-golden/v2/dataset.json")
+            ),
+            new CatalogEntry(
                     "hotpotqa-local-graph-golden", "HotpotQA Local Graph",
                     "HotpotQA distractor validation 的 Local GraphRAG 多跳召回对照",
                     "hotpotqa-local-graph-v1", "LOCAL_GRAPH",
@@ -106,6 +123,13 @@ class EvaluationCatalogImporter {
                     "hotpotqa-local-graph-golden", "HotpotQA Local Graph",
                     "HotpotQA distractor validation 的 Local GraphRAG 多跳召回对照",
                     "hotpotqa-local-graph-v2", "LOCAL_GRAPH",
+                    "CC-BY-SA-4.0",
+                    List.of("hotpotqa-golden/v2/dataset.json")
+            ),
+            new CatalogEntry(
+                    "hotpotqa-local-graph-golden", "HotpotQA Local Graph",
+                    "HotpotQA distractor validation 的 Local GraphRAG 多跳召回对照",
+                    "hotpotqa-local-graph-v3", "LOCAL_GRAPH",
                     "CC-BY-SA-4.0",
                     List.of("hotpotqa-golden/v2/dataset.json")
             ),
@@ -223,6 +247,8 @@ class EvaluationCatalogImporter {
             if (!candidates.isArray()) {
                 continue;
             }
+            Map<String, JsonNode> corpus = isHotpotQaV3(entry)
+                    ? corpus(root) : Map.of();
             String slice = slice(resource.path());
             int position = 0;
             for (JsonNode candidate : candidates) {
@@ -278,6 +304,16 @@ class EvaluationCatalogImporter {
                 }
                 if (candidate.has("intent")) {
                     metadata.put("intent", candidate.path("intent").asText());
+                }
+                if (isHotpotQaV3(entry)) {
+                    metadata.put(
+                            "supportingFactSchema",
+                            "hotpotqa-supporting-fact-v1"
+                    );
+                    metadata.put(
+                            "supportingFacts",
+                            supportingFacts(corpus, candidate)
+                    );
                 }
                 seeds.add(new CaseSeed(
                         stableId("case:" + entry.version() + ":" + key),
@@ -372,6 +408,146 @@ class EvaluationCatalogImporter {
             }
         }
         return List.copyOf(keys);
+    }
+
+    static List<Map<String, Object>> supportingFacts(
+            JsonNode root,
+            JsonNode candidate
+    ) {
+        return supportingFacts(corpus(root), candidate);
+    }
+
+    private static List<Map<String, Object>> supportingFacts(
+            Map<String, JsonNode> corpus,
+            JsonNode candidate
+    ) {
+        JsonNode evidenceRefs = candidate.path("evidenceRefs");
+        if (!evidenceRefs.isArray() || evidenceRefs.isEmpty()) {
+            throw new IllegalStateException(
+                    "HotpotQA v3 Case has no supporting Evidence"
+            );
+        }
+        List<Map<String, Object>> facts = new ArrayList<>();
+        Set<String> identities = new LinkedHashSet<>();
+        for (JsonNode evidence : evidenceRefs) {
+            String key = evidence.path("evidenceKey").asText().strip();
+            JsonNode sentenceIds = evidence.path("sentenceIds");
+            JsonNode sentences = evidence.path("supportingSentences");
+            if (key.isBlank() || !sentenceIds.isArray()
+                    || !sentences.isArray()
+                    || sentenceIds.isEmpty()
+                    || sentenceIds.size() != sentences.size()) {
+                throw new IllegalStateException(
+                        "Invalid HotpotQA supporting fact contract for " + key
+                );
+            }
+            JsonNode corpusDocument = corpus.get(key);
+            if (corpusDocument == null
+                    || !corpusDocument.path("sentences").isArray()) {
+                throw new IllegalStateException(
+                        "HotpotQA Evidence is absent from corpus: " + key
+                );
+            }
+            JsonNode corpusSentences = corpusDocument.path("sentences");
+            for (int index = 0; index < sentences.size(); index++) {
+                if (!sentenceIds.get(index).canConvertToInt()) {
+                    throw new IllegalStateException(
+                            "HotpotQA sentence id is not an integer for " + key
+                    );
+                }
+                int sentenceId = sentenceIds.get(index).asInt();
+                if (sentenceId < 0 || sentenceId >= corpusSentences.size()) {
+                    throw new IllegalStateException(
+                            "HotpotQA sentence id is outside corpus for " + key
+                    );
+                }
+                String sentence = canonicalSupportingText(
+                        sentences.get(index).asText()
+                );
+                String corpusSentence = canonicalSupportingText(
+                        corpusSentences.get(sentenceId).asText()
+                );
+                if (sentence.isBlank() || !sentence.equals(corpusSentence)) {
+                    throw new IllegalStateException(
+                            "HotpotQA supporting sentence differs from corpus for "
+                                    + key + ":" + sentenceId
+                    );
+                }
+                if (!identities.add(key + ":" + sentenceId)) {
+                    throw new IllegalStateException(
+                            "Duplicate HotpotQA supporting fact "
+                                    + key + ":" + sentenceId
+                    );
+                }
+                facts.add(Map.of(
+                        "ordinal", facts.size(),
+                        "evidenceKey", key,
+                        "sentenceId", sentenceId,
+                        "sourceUnitOrder", sourceUnitOrder(
+                                corpusSentences, sentenceId
+                        ),
+                        "sourceTextHash", sha256(
+                                sentence.getBytes(StandardCharsets.UTF_8)
+                        ),
+                        "normalizationVersion", "markdown-nfc-line-endings-v1"
+                ));
+            }
+        }
+        int expectedCount = candidate.path("expected")
+                .path("supportingFactCount").asInt(-1);
+        if (facts.isEmpty()
+                || (expectedCount >= 0 && expectedCount != facts.size())) {
+            throw new IllegalStateException(
+                    "HotpotQA supporting fact count differs from corpus"
+            );
+        }
+        return List.copyOf(facts);
+    }
+
+    private static Map<String, JsonNode> corpus(JsonNode root) {
+        JsonNode corpus = root.path("corpus");
+        if (!corpus.isArray()) {
+            throw new IllegalStateException("HotpotQA v3 corpus is unavailable");
+        }
+        Map<String, JsonNode> result = new LinkedHashMap<>();
+        for (JsonNode document : corpus) {
+            String key = document.path("evidenceKey").asText().strip();
+            if (key.isBlank() || result.putIfAbsent(key, document) != null) {
+                throw new IllegalStateException(
+                        "HotpotQA corpus contains an invalid Evidence key"
+                );
+            }
+        }
+        return Map.copyOf(result);
+    }
+
+    private static int sourceUnitOrder(
+            JsonNode corpusSentences,
+            int sentenceId
+    ) {
+        int order = 2; // SourceUnit 1 is the Markdown title heading.
+        for (int index = 0; index < sentenceId; index++) {
+            if (!canonicalSupportingText(
+                    corpusSentences.get(index).asText()
+            ).isBlank()) {
+                order++;
+            }
+        }
+        return order;
+    }
+
+    static String canonicalSupportingText(String value) {
+        String lineEndings = value
+                .replace("\r\n", "\n")
+                .replace('\r', '\n');
+        return Normalizer.normalize(
+                lineEndings, Normalizer.Form.NFC
+        ).strip();
+    }
+
+    private static boolean isHotpotQaV3(CatalogEntry entry) {
+        return entry.key().startsWith("hotpotqa-")
+                && entry.version().endsWith("-v3");
     }
 
     private static String language(

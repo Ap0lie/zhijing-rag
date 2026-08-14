@@ -31,13 +31,16 @@ public class LocalGraphRetrievalService {
 
     private final NamedParameterJdbcTemplate jdbc;
     private final GraphRetrievalConfigurationService configurations;
+    private final GraphEntityLinkShadowService entityLinkShadow;
 
     LocalGraphRetrievalService(
             NamedParameterJdbcTemplate jdbc,
-            GraphRetrievalConfigurationService configurations
+            GraphRetrievalConfigurationService configurations,
+            GraphEntityLinkShadowService entityLinkShadow
     ) {
         this.jdbc = jdbc;
         this.configurations = configurations;
+        this.entityLinkShadow = entityLinkShadow;
     }
 
     @Transactional(readOnly = true)
@@ -47,7 +50,8 @@ public class LocalGraphRetrievalService {
             List<UUID> authorizedDocumentIds
     ) {
         return expand(
-                query, hybridChildIds, authorizedDocumentIds, null, null
+                query, hybridChildIds, authorizedDocumentIds,
+                null, null
         );
     }
 
@@ -101,7 +105,8 @@ public class LocalGraphRetrievalService {
                         profile,
                         generation,
                         "GRAPH_NO_SEED",
-                        elapsed(started)
+                        elapsed(started),
+                        List.of()
                 );
             }
             List<PathEdge> traversed = paths(
@@ -115,7 +120,8 @@ public class LocalGraphRetrievalService {
                         profile,
                         generation,
                         "GRAPH_NO_PATH",
-                        elapsed(started)
+                        elapsed(started),
+                        seeds.stream().map(Seed::entityId).toList()
                 );
             }
             List<GraphCandidate> candidates = candidates(
@@ -129,7 +135,8 @@ public class LocalGraphRetrievalService {
                         profile,
                         generation,
                         "GRAPH_NO_EVIDENCE",
-                        elapsed(started)
+                        elapsed(started),
+                        seeds.stream().map(Seed::entityId).toList()
                 );
             }
             return new Expansion(
@@ -141,6 +148,7 @@ public class LocalGraphRetrievalService {
                             .distinct()
                             .sorted()
                             .toList(),
+                    seeds.stream().map(Seed::entityId).toList(),
                     traversed.size(),
                     candidates,
                     null,
@@ -155,6 +163,84 @@ public class LocalGraphRetrievalService {
             );
         } catch (DataAccessException exception) {
             throw authorizationUnavailable(exception);
+        }
+    }
+
+    /**
+     * Evaluates broader entity-name matching after retrieval has completed.
+     * The result is diagnostic-only and cannot change seeds or candidates.
+     */
+    public ShadowSeedDiagnostics diagnoseEntityLinks(
+            String query,
+            List<UUID> authorizedDocumentIds,
+            Expansion actual
+    ) {
+        if (actual == null || actual.graphGeneration() == null) {
+            return ShadowSeedDiagnostics.unavailable(
+                    "GRAPH_ENTITY_LINK_SHADOW_NO_GENERATION"
+            );
+        }
+        try {
+            GraphEntityLinkShadowService.ShadowScan scan =
+                    entityLinkShadow.scan(
+                            actual.graphGeneration(),
+                            query,
+                            authorizedDocumentIds,
+                            Math.max(
+                                    actual.profile().seedLimit() * 4,
+                                    actual.profile().seedLimit()
+                                            + actual.seedEntityIds().size()
+                            ),
+                            actual.profile().statementTimeoutMs()
+                    );
+            if (!scan.measured()) {
+                return ShadowSeedDiagnostics.unavailable(scan.reasonCode());
+            }
+            Set<UUID> actualEntityIds = new LinkedHashSet<>(
+                    actual.seedEntityIds()
+            );
+            List<UUID> actualDocuments = new ArrayList<>(
+                    actual.seedDocumentIds()
+            );
+            scan.candidates().stream()
+                    .filter(candidate ->
+                            actualEntityIds.contains(candidate.entityId()))
+                    .forEach(candidate ->
+                            actualDocuments.addAll(candidate.documentIds()));
+            List<GraphEntityLinkShadowService.ShadowCandidate> additions =
+                    scan.candidates().stream()
+                            .filter(candidate ->
+                                    !actualEntityIds.contains(
+                                            candidate.entityId()
+                                    ))
+                            .limit(Math.max(
+                                    0,
+                                    actual.profile().seedLimit()
+                                            - actualEntityIds.size()
+                            ))
+                            .toList();
+            List<UUID> documents = new ArrayList<>(actualDocuments);
+            additions.forEach(candidate ->
+                    documents.addAll(candidate.documentIds()));
+            return ShadowSeedDiagnostics.measured(
+                    actualEntityIds.size() + additions.size(),
+                    documents.stream().distinct().sorted().toList(),
+                    additions.size(),
+                    additions.stream()
+                            .map(candidate -> candidate.mode().name())
+                            .distinct()
+                            .toList()
+            );
+        } catch (DataAccessException exception) {
+            return ShadowSeedDiagnostics.unavailable(
+                    exception instanceof QueryTimeoutException
+                            ? "GRAPH_ENTITY_LINK_SHADOW_TIMEOUT"
+                            : "GRAPH_ENTITY_LINK_SHADOW_UNAVAILABLE"
+            );
+        } catch (RuntimeException exception) {
+            return ShadowSeedDiagnostics.unavailable(
+                    "GRAPH_ENTITY_LINK_SHADOW_UNAVAILABLE"
+            );
         }
     }
 
@@ -701,6 +787,7 @@ public class LocalGraphRetrievalService {
             Long graphGeneration,
             int seedCount,
             List<UUID> seedDocumentIds,
+            List<UUID> seedEntityIds,
             int edgeCount,
             List<GraphCandidate> candidates,
             String degradationCode,
@@ -711,7 +798,9 @@ public class LocalGraphRetrievalService {
                 String code,
                 long tookMs
         ) {
-            return unavailable(profile, null, code, tookMs);
+            return unavailable(
+                    profile, null, code, tookMs, List.of()
+            );
         }
 
         static Expansion unavailable(
@@ -720,11 +809,24 @@ public class LocalGraphRetrievalService {
                 String code,
                 long tookMs
         ) {
+            return unavailable(
+                    profile, generation, code, tookMs, List.of()
+            );
+        }
+
+        static Expansion unavailable(
+                ProfileView profile,
+                Long generation,
+                String code,
+                long tookMs,
+                List<UUID> seedEntityIds
+        ) {
             return new Expansion(
                     profile,
                     generation,
                     0,
                     List.of(),
+                    seedEntityIds,
                     0,
                     List.of(),
                     code,
@@ -734,6 +836,44 @@ public class LocalGraphRetrievalService {
 
         public boolean used() {
             return degradationCode == null && !candidates.isEmpty();
+        }
+    }
+
+    public record ShadowSeedDiagnostics(
+            boolean measured,
+            int seedEntityCount,
+            List<UUID> seedDocumentIds,
+            int addedSeedEntityCount,
+            List<String> matchModes,
+            String reasonCode
+    ) {
+        public ShadowSeedDiagnostics {
+            seedDocumentIds = seedDocumentIds == null
+                    ? List.of() : List.copyOf(seedDocumentIds);
+            matchModes = matchModes == null
+                    ? List.of() : List.copyOf(matchModes);
+        }
+
+        public static ShadowSeedDiagnostics measured(
+                int seedEntityCount,
+                List<UUID> seedDocumentIds,
+                int addedSeedEntityCount,
+                List<String> matchModes
+        ) {
+            return new ShadowSeedDiagnostics(
+                    true, seedEntityCount, seedDocumentIds,
+                    addedSeedEntityCount, matchModes, null
+            );
+        }
+
+        public static ShadowSeedDiagnostics notRequested() {
+            return unavailable("GRAPH_ENTITY_LINK_SHADOW_NOT_REQUESTED");
+        }
+
+        public static ShadowSeedDiagnostics unavailable(String reasonCode) {
+            return new ShadowSeedDiagnostics(
+                    false, 0, List.of(), 0, List.of(), reasonCode
+            );
         }
     }
 

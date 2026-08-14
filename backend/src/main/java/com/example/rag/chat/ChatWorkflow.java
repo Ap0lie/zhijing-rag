@@ -59,11 +59,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -84,6 +86,7 @@ class ChatWorkflow {
 
     static final String ORCHESTRATION_VERSION = "phase14b-stategraph-v1";
     private static final int MAX_DIRECT_ANSWER_LENGTH = 512;
+    private static final int CITATION_MATCH_TEXT_LIMIT = 4_096;
 
     private static final String RUN_ID = "runId";
     private static final String HISTORY = "history";
@@ -773,50 +776,69 @@ class ChatWorkflow {
             );
         }
 
-        Map<UUID, EvidenceReference> whitelist = new LinkedHashMap<>();
-        promptEvidence(state).forEach(item -> item.citationSpans().forEach(
-                (id, span) -> whitelist.put(
-                        id,
-                        new EvidenceReference(id, item, span)
-                )
-        ));
+        List<EvidenceItem> promptItems = promptEvidence(state);
+        Map<UUID, EvidenceItem> topLevelItems = new LinkedHashMap<>();
+        promptItems.forEach(item -> topLevelItems.put(item.id(), item));
+        Map<UUID, EvidenceReference> exposedWhitelist = new LinkedHashMap<>();
+        promptItems.forEach(item -> {
+            Set<UUID> exposedIds = new LinkedHashSet<>();
+            exposedIds.add(item.modelEvidence().citationId());
+            item.modelEvidence().graphContext().forEach(
+                    graph -> exposedIds.add(graph.citationId())
+            );
+            exposedIds.forEach(id -> {
+                SourceSpanView span = item.citationSpans().get(id);
+                if (span != null) {
+                    exposedWhitelist.put(
+                            id,
+                            new EvidenceReference(id, item, span)
+                    );
+                }
+            });
+        });
         Set<UUID> memoryWhitelist = new LinkedHashSet<>(
                 currentMemoryWhitelist(input.user(), memory(state))
         );
         memoryWhitelist.retainAll(promptPlan(state).memoryIds());
-        List<ModelSegment> segments = new ArrayList<>();
+        List<ModelSegment> anchorSegments = eligibleSegments(
+                answer.segments(),
+                exposedWhitelist,
+                memoryWhitelist,
+                input.user()
+        );
+        Map<UUID, List<String>> citedTexts = citedTexts(
+                anchorSegments,
+                topLevelItems.keySet()
+        );
+        Map<UUID, EvidenceReference> whitelist = new LinkedHashMap<>(
+                exposedWhitelist
+        );
+        promptItems.forEach(item -> {
+            SourceSpanView selected = citationSpan(
+                    item.context(),
+                    input.question(),
+                    citedTexts.getOrDefault(item.id(), List.of())
+            );
+            if (exposedWhitelist.containsKey(item.id())) {
+                whitelist.put(
+                        item.id(),
+                        new EvidenceReference(item.id(), item, selected)
+                );
+            }
+        });
+        List<ModelSegment> segments = eligibleSegments(
+                anchorSegments,
+                whitelist,
+                memoryWhitelist,
+                input.user()
+        );
         Map<UUID, EvidenceReference> used = new LinkedHashMap<>();
         Set<UUID> usedMemories = new LinkedHashSet<>();
-        for (ModelSegment segment : answer.segments()) {
-            String text = segment.text() == null ? "" : segment.text().trim();
-            List<UUID> ids = segment.citationIds() == null
-                    ? List.of()
-                    : segment.citationIds().stream().distinct().toList();
-            List<UUID> memoryIds = segment.memoryIds() == null
-                    ? List.of()
-                    : segment.memoryIds().stream().distinct().toList();
-            if (text.isEmpty() || text.length() > 4_000
-                    || ids.isEmpty()
-                    || ids.stream().anyMatch(id ->
-                    !whitelist.containsKey(id))
-                    || memoryIds.stream().anyMatch(id ->
-                    !memoryWhitelist.contains(id))) {
-                continue;
-            }
-            boolean current = true;
-            for (UUID id : ids) {
-                EvidenceReference reference = whitelist.get(id);
-                if (!stillAuthorized(reference, input.user())) {
-                    current = false;
-                    break;
-                }
-            }
-            if (!current) {
-                continue;
-            }
-            segments.add(new ModelSegment(text, ids, memoryIds));
-            ids.forEach(id -> used.putIfAbsent(id, whitelist.get(id)));
-            usedMemories.addAll(memoryIds);
+        for (ModelSegment segment : segments) {
+            segment.citationIds().forEach(
+                    id -> used.putIfAbsent(id, whitelist.get(id))
+            );
+            usedMemories.addAll(segment.memoryIds());
         }
         if (segments.isEmpty()) {
             return Map.of(
@@ -1195,7 +1217,7 @@ class ChatWorkflow {
         );
     }
 
-    private boolean finishAndScheduleCompression(
+    boolean finishAndScheduleCompression(
             RunInput input,
             RunCompletion completion
     ) {
@@ -1208,7 +1230,10 @@ class ChatWorkflow {
             boolean completed = repository.finishRun(
                     input.user().id(), input.started().run().id(), completion
             );
-            if (completed) {
+            if (completed && repository.findSession(
+                    input.user().id(),
+                    input.started().run().sessionId()
+            ).isPresent()) {
                 compression.prepare(
                         input.user(), input.started().run().sessionId()
                 );
@@ -1268,7 +1293,6 @@ class ChatWorkflow {
         Map<UUID, SourceSpanView> spans = new LinkedHashMap<>();
         context.sourceSpans().forEach(span -> spans.put(span.id(), span));
         Map<UUID, UUID> citationBySpan = new LinkedHashMap<>();
-        citationBySpan.put(baseSpan.id(), baseCitationId);
         List<GraphEvidence> evidence = new ArrayList<>();
         List<GraphPathView> graphPaths = hit.evidence().graphPaths() == null
                 ? List.of()
@@ -1361,6 +1385,217 @@ class ChatWorkflow {
                         .thenComparingInt(SourceSpanView::order)
                         .thenComparing(SourceSpanView::id))
                 .orElseThrow();
+    }
+
+    static SourceSpanView citationSpan(
+            ChunkContext context,
+            String question,
+            List<String> citedTexts
+    ) {
+        List<SourceSpanView> ordered = orderedSourceSpans(context);
+        if (ordered.isEmpty()) {
+            throw new ChatWorkflowException(
+                    "CITATION_SOURCE_SPAN_MISSING",
+                    "引用来源位置不存在"
+            );
+        }
+        List<SourceSpanView> preciseCells = ordered.stream()
+                .filter(ChatWorkflow::isPreciseCellRange)
+                .toList();
+        List<SourceSpanView> candidates = preciseCells.isEmpty()
+                ? ordered : preciseCells;
+        Set<String> questionFeatures = citationFeatures(
+                question == null ? List.of() : List.of(question)
+        );
+        Set<String> answerFeatures = citationFeatures(citedTexts);
+        Map<UUID, Long> scores = new LinkedHashMap<>();
+        candidates.forEach(span -> scores.put(
+                span.id(),
+                citationScore(
+                        sourceSpanText(context.child().text(), span),
+                        questionFeatures,
+                        answerFeatures
+                )
+        ));
+        long best = scores.values().stream()
+                .mapToLong(Long::longValue)
+                .max()
+                .orElse(0);
+        if (best == 0) {
+            return citationAnchor(context);
+        }
+        return candidates.stream()
+                .min(Comparator
+                        .comparingLong((SourceSpanView span) ->
+                                scores.get(span.id()))
+                        .reversed()
+                        .thenComparingInt(SourceSpanView::order)
+                        .thenComparing(SourceSpanView::id))
+                .orElseThrow();
+    }
+
+    private List<ModelSegment> eligibleSegments(
+            List<ModelSegment> segments,
+            Map<UUID, EvidenceReference> whitelist,
+            Set<UUID> memoryWhitelist,
+            PlatformUserPrincipal user
+    ) {
+        if (segments == null) {
+            return List.of();
+        }
+        List<ModelSegment> eligible = new ArrayList<>();
+        for (ModelSegment candidate : segments) {
+            ModelSegment normalized = normalizeSegment(
+                    candidate,
+                    whitelist.keySet(),
+                    memoryWhitelist
+            );
+            if (normalized == null) {
+                continue;
+            }
+            boolean current = normalized.citationIds().stream()
+                    .map(whitelist::get)
+                    .allMatch(reference -> stillAuthorized(reference, user));
+            if (current) {
+                eligible.add(normalized);
+            }
+        }
+        return List.copyOf(eligible);
+    }
+
+    static ModelSegment normalizeSegment(
+            ModelSegment segment,
+            Set<UUID> citationWhitelist,
+            Set<UUID> memoryWhitelist
+    ) {
+        if (segment == null) {
+            return null;
+        }
+        String text = segment.text() == null ? "" : segment.text().trim();
+        List<UUID> ids = segment.citationIds() == null
+                ? List.of()
+                : segment.citationIds().stream().distinct().toList();
+        List<UUID> memoryIds = segment.memoryIds() == null
+                ? List.of()
+                : segment.memoryIds().stream().distinct().toList();
+        if (text.isEmpty() || text.length() > 4_000
+                || ids.isEmpty()
+                || !citationWhitelist.containsAll(ids)
+                || !memoryWhitelist.containsAll(memoryIds)) {
+            return null;
+        }
+        return new ModelSegment(text, ids, memoryIds);
+    }
+
+    static Map<UUID, List<String>> citedTexts(
+            List<ModelSegment> segments,
+            Set<UUID> topLevelIds
+    ) {
+        Map<UUID, List<String>> result = new LinkedHashMap<>();
+        if (segments == null) {
+            return result;
+        }
+        for (ModelSegment segment : segments) {
+            segment.citationIds().stream()
+                    .filter(topLevelIds::contains)
+                    .forEach(id -> result.computeIfAbsent(
+                            id, ignored -> new ArrayList<>()
+                    ).add(segment.text()));
+        }
+        result.replaceAll((id, values) -> List.copyOf(values));
+        return result;
+    }
+
+    private static long citationScore(
+            String spanText,
+            Set<String> questionFeatures,
+            Set<String> answerFeatures
+    ) {
+        Set<String> spanFeatures = citationFeatures(List.of(spanText));
+        return 4L * overlap(spanFeatures, answerFeatures)
+                + overlap(spanFeatures, questionFeatures);
+    }
+
+    private static int overlap(Set<String> left, Set<String> right) {
+        int count = 0;
+        for (String value : left) {
+            if (right.contains(value)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static Set<String> citationFeatures(List<String> values) {
+        StringBuilder source = new StringBuilder();
+        if (values != null) {
+            for (String value : values) {
+                if (value == null || value.isBlank()
+                        || source.length() >= CITATION_MATCH_TEXT_LIMIT) {
+                    continue;
+                }
+                int remaining = CITATION_MATCH_TEXT_LIMIT - source.length();
+                if (!source.isEmpty()) {
+                    source.append(' ');
+                    remaining--;
+                }
+                if (remaining > 0) {
+                    source.append(value, 0, Math.min(value.length(), remaining));
+                }
+            }
+        }
+        String normalized = Normalizer.normalize(
+                source, Normalizer.Form.NFKC
+        ).toLowerCase(Locale.ROOT);
+        Set<String> features = new LinkedHashSet<>();
+        StringBuilder word = new StringBuilder();
+        int previousHan = -1;
+        for (int offset = 0; offset < normalized.length(); ) {
+            int codePoint = normalized.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (Character.UnicodeScript.of(codePoint)
+                    == Character.UnicodeScript.HAN) {
+                addWordFeature(features, word);
+                String current = new String(Character.toChars(codePoint));
+                features.add("h:" + current);
+                if (previousHan >= 0) {
+                    features.add("b:" + new String(
+                            Character.toChars(previousHan)
+                    ) + current);
+                }
+                previousHan = codePoint;
+            } else if (Character.isLetterOrDigit(codePoint)) {
+                previousHan = -1;
+                word.appendCodePoint(codePoint);
+            } else {
+                previousHan = -1;
+                addWordFeature(features, word);
+            }
+        }
+        addWordFeature(features, word);
+        return Set.copyOf(features);
+    }
+
+    private static void addWordFeature(
+            Set<String> features,
+            StringBuilder word
+    ) {
+        if (!word.isEmpty()) {
+            features.add("w:" + word);
+            word.setLength(0);
+        }
+    }
+
+    private static String sourceSpanText(
+            String childText,
+            SourceSpanView span
+    ) {
+        if (childText == null || childText.isEmpty()) {
+            return "";
+        }
+        int start = Math.max(0, span.chunkStartOffset());
+        int end = Math.min(childText.length(), span.chunkEndOffset());
+        return start < end ? childText.substring(start, end) : "";
     }
 
     private static boolean isPreciseCellRange(SourceSpanView span) {

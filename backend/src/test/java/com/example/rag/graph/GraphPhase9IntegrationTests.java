@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Files;
@@ -22,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,6 +41,7 @@ class GraphPhase9IntegrationTests {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private UserRepository users;
     @Autowired private LocalGraphRetrievalService retrieval;
+    @Autowired private GraphEntityLinkShadowService entityLinkShadow;
     @Autowired private GraphRetrievalConfigurationService configurations;
     @Autowired private ObjectMapper json;
 
@@ -411,6 +414,229 @@ class GraphPhase9IntegrationTests {
 
         assertThat(embedded.degradationCode()).isEqualTo("GRAPH_NO_SEED");
         assertThat(exact.used()).isTrue();
+    }
+
+    @Test
+    @Transactional
+    void entityLinkShadowIsDiagnosticOnlyAndKeepsAuthorizationClosure() {
+        Fixture fixture = fixture();
+        UUID shadowEntity = UUID.randomUUID();
+        UUID shadowChild = UUID.randomUUID();
+        UUID shadowSpan = UUID.randomUUID();
+        UUID shadowUnit = UUID.randomUUID();
+        UUID shadowMention = UUID.randomUUID();
+        String fullName = "North Atlantic Treaty Organization";
+
+        insertChunk(
+                shadowChild, fixture.documentId(), fixture.revisionId(),
+                fixture.parentId(), "CHILD", 3, fullName, true
+        );
+        jdbc.update(
+                """
+                INSERT INTO source_units (
+                    id, document_id, revision_id, unit_order, unit_kind,
+                    stable_address, canonical_text, canonical_text_hash,
+                    normalization_version, label_metadata
+                ) VALUES (
+                    ?, ?, ?, 2, 'PAGE', 'page:2', ?, ?, 'utf16-v1',
+                    '{"pageNumber":2,"sourceLabel":"第 2 页"}'::jsonb
+                )
+                """,
+                shadowUnit,
+                fixture.documentId(),
+                fixture.revisionId(),
+                fullName,
+                HASH
+        );
+        insertSpan(
+                shadowSpan, shadowChild, fixture.documentId(),
+                fixture.revisionId(), shadowUnit, 0, fullName.length()
+        );
+        jdbc.update(
+                """
+                INSERT INTO graph_entities (
+                    id, graph_generation, canonical_name,
+                    normalized_name, entity_type
+                ) VALUES (?, ?, ?, ?, 'ORG')
+                """,
+                shadowEntity,
+                fixture.graphGeneration(),
+                fullName,
+                fullName.toLowerCase()
+        );
+        jdbc.update(
+                """
+                INSERT INTO graph_entity_mentions (
+                    id, graph_generation, entity_id, document_id,
+                    revision_id, parent_chunk_id, child_chunk_id,
+                    source_span_id, surface_text, start_offset, end_offset
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                """,
+                shadowMention,
+                fixture.graphGeneration(),
+                shadowEntity,
+                fixture.documentId(),
+                fixture.revisionId(),
+                fixture.parentId(),
+                shadowChild,
+                shadowSpan,
+                fullName,
+                fullName.length()
+        );
+        jdbc.update(
+                """
+                INSERT INTO graph_entity_aliases (
+                    graph_generation, entity_id, alias, normalized_alias
+                ) VALUES (?, ?, ?, ?)
+                """,
+                fixture.graphGeneration(),
+                shadowEntity,
+                fullName,
+                fullName.toLowerCase()
+        );
+        jdbc.update(
+                """
+                INSERT INTO graph_entity_alias_evidence (
+                    graph_generation, entity_id, normalized_alias, mention_id
+                ) VALUES (?, ?, ?, ?)
+                """,
+                fixture.graphGeneration(),
+                shadowEntity,
+                fullName.toLowerCase(),
+                shadowMention
+        );
+        jdbc.update(
+                """
+                INSERT INTO graph_entity_aliases (
+                    graph_generation, entity_id, alias, normalized_alias
+                ) VALUES (?, ?, 'Microsoft', 'microsoft')
+                """,
+                fixture.graphGeneration(),
+                shadowEntity
+        );
+        jdbc.update(
+                """
+                INSERT INTO graph_entity_alias_evidence (
+                    graph_generation, entity_id, normalized_alias, mention_id
+                ) VALUES (?, ?, 'microsoft', ?)
+                """,
+                fixture.graphGeneration(),
+                shadowEntity,
+                shadowMention
+        );
+
+        LocalGraphRetrievalService.Expansion baseline = retrieval.expand(
+                "What does NATO coordinate?",
+                List.of(fixture.seedChildId()),
+                List.of(fixture.documentId())
+        );
+        LocalGraphRetrievalService.ShadowSeedDiagnostics diagnostic =
+                retrieval.diagnoseEntityLinks(
+                        "What does NATO coordinate?",
+                        List.of(fixture.documentId()),
+                        baseline
+                );
+        LocalGraphRetrievalService.Expansion afterDiagnostic =
+                retrieval.expand(
+                        "What does NATO coordinate?",
+                        List.of(fixture.seedChildId()),
+                        List.of(fixture.documentId())
+                );
+
+        assertThat(diagnostic.measured()).isTrue();
+        assertThat(afterDiagnostic.seedCount()).isEqualTo(baseline.seedCount());
+        assertThat(afterDiagnostic.seedDocumentIds())
+                .containsExactlyElementsOf(baseline.seedDocumentIds());
+        assertThat(afterDiagnostic.edgeCount()).isEqualTo(baseline.edgeCount());
+        assertThat(afterDiagnostic.candidates())
+                .extracting(LocalGraphRetrievalService.GraphCandidate::childId)
+                .containsExactlyElementsOf(baseline.candidates().stream()
+                        .map(LocalGraphRetrievalService.GraphCandidate::childId)
+                        .toList());
+
+        GraphEntityLinkShadowService rawShadow =
+                AopTestUtils.getTargetObject(entityLinkShadow);
+        GraphEntityLinkShadowService.ShadowScan visible = rawShadow.scan(
+                fixture.graphGeneration(),
+                "What does NATO coordinate?",
+                List.of(fixture.documentId()),
+                20,
+                500
+        );
+        assertThat(visible.measured()).isTrue();
+        assertThat(visible.candidates())
+                .extracting(
+                        GraphEntityLinkShadowService.ShadowCandidate::entityId
+                ).contains(shadowEntity);
+        assertThat(visible.matchModes()).contains("ACRONYM");
+
+        GraphEntityLinkShadowService.ShadowScan unauthorized = rawShadow.scan(
+                fixture.graphGeneration(),
+                "What does NATO coordinate?",
+                List.of(UUID.randomUUID()),
+                20,
+                500
+        );
+        assertThat(unauthorized.candidates()).isEmpty();
+
+        GraphEntityLinkShadowService.ShadowScan cellLimited = rawShadow.scan(
+                fixture.graphGeneration(),
+                "Mzzzzzzzz",
+                List.of(fixture.documentId()),
+                20,
+                500,
+                new GraphEntityLinkShadowService.MatchLimits(
+                        1,
+                        GraphEntityLinkShadowService.MAX_MATCH_NANOS,
+                        () -> 0L
+                )
+        );
+        assertThat(cellLimited.measured()).isFalse();
+        assertThat(cellLimited.reasonCode())
+                .isEqualTo("GRAPH_ENTITY_LINK_SHADOW_MATCH_LIMIT");
+        assertThat(cellLimited.candidates()).isEmpty();
+        assertThat(cellLimited.matchModes()).isEmpty();
+
+        AtomicLong now = new AtomicLong();
+        GraphEntityLinkShadowService.ShadowScan deadlineLimited =
+                rawShadow.scan(
+                        fixture.graphGeneration(),
+                        "What does NATO coordinate?",
+                        List.of(fixture.documentId()),
+                        20,
+                        500,
+                        new GraphEntityLinkShadowService.MatchLimits(
+                                GraphEntityLinkShadowService.MAX_FUZZY_CELLS,
+                                GraphEntityLinkShadowService.MAX_MATCH_NANOS,
+                                () -> now.getAndAdd(
+                                        GraphEntityLinkShadowService
+                                                .MAX_MATCH_NANOS
+                                )
+                        )
+                );
+        assertThat(deadlineLimited.measured()).isFalse();
+        assertThat(deadlineLimited.reasonCode())
+                .isEqualTo("GRAPH_ENTITY_LINK_SHADOW_MATCH_LIMIT");
+        assertThat(deadlineLimited.candidates()).isEmpty();
+        assertThat(deadlineLimited.matchModes()).isEmpty();
+
+        jdbc.update(
+                """
+                UPDATE graph_projection_states
+                SET state = 'FAILED'
+                WHERE graph_generation = ? AND document_id = ?
+                """,
+                fixture.graphGeneration(),
+                fixture.documentId()
+        );
+        GraphEntityLinkShadowService.ShadowScan stale = rawShadow.scan(
+                fixture.graphGeneration(),
+                "What does NATO coordinate?",
+                List.of(fixture.documentId()),
+                20,
+                500
+        );
+        assertThat(stale.candidates()).isEmpty();
     }
 
     private void writeReport(

@@ -30,6 +30,7 @@ WORK = ROOT / "data/public-golden/work/hotpotqa-v1"
 STATE_FILE = WORK / "runtime-state.json"
 REPORT_FILE = WORK / "run-report.json"
 DATASET_KEY = "hotpotqa-answer-golden"
+CATALOG_DATASET_VERSION = "hotpotqa-answer-citation-v1"
 TERMINAL_RUNS = {"SUCCEEDED", "FAILED", "CANCELLED", "BLOCKED_PREREQUISITE"}
 TERMINAL_REVISIONS = {"READY", "FAILED", "QUARANTINED", "DELETED"}
 
@@ -203,14 +204,18 @@ def save_json(path: Path, value: Any) -> None:
 
 
 def configure(version: int) -> None:
-    global RESOURCE, WORK, STATE_FILE, REPORT_FILE
+    global RESOURCE, WORK, STATE_FILE, REPORT_FILE, CATALOG_DATASET_VERSION
+    # v3 deliberately reuses the frozen v2 corpus and adds stricter
+    # supporting-span expectations in the immutable catalog Case metadata.
+    corpus_version = min(version, 2)
     RESOURCE = (
         ROOT / "backend/src/test/resources/hotpotqa-golden"
-        / f"v{version}" / "dataset.json"
+        / f"v{corpus_version}" / "dataset.json"
     )
     WORK = ROOT / "data/public-golden/work" / f"hotpotqa-v{version}"
     STATE_FILE = WORK / "runtime-state.json"
     REPORT_FILE = WORK / "run-report.json"
+    CATALOG_DATASET_VERSION = f"hotpotqa-answer-citation-v{version}"
 
 
 def paged_items(client: ApiClient, path: str, size: int = 100) -> dict[str, Any]:
@@ -421,7 +426,7 @@ def run_evaluation(
     client: ApiClient, dataset: dict[str, Any], state: dict[str, Any], timeout_seconds: int
 ) -> dict[str, Any]:
     datasets = client.request("GET", "/api/v1/admin/evaluations/datasets")
-    _, version = select_dataset(datasets, dataset["suiteVersion"])
+    _, version = select_dataset(datasets, CATALOG_DATASET_VERSION)
     mappings = paged_items(
         client,
         f"/api/v1/admin/evaluations/datasets/versions/{version['id']}/mappings",
@@ -443,7 +448,7 @@ def run_evaluation(
         "POST",
         "/api/v1/admin/evaluations/subjects",
         json_body={
-            "name": f"HotpotQA {dataset['suiteVersion']} · {target['targetKey']}"[:120],
+            "name": f"HotpotQA {CATALOG_DATASET_VERSION} · {target['targetKey']}"[:120],
             "targetId": target["id"],
         },
     )
@@ -452,7 +457,7 @@ def run_evaluation(
         "/api/v1/admin/evaluations/runs",
         json_body={
             "evaluationSubjectId": subject["id"],
-            "datasetVersion": dataset["suiteVersion"],
+            "datasetVersion": CATALOG_DATASET_VERSION,
             "idempotencyKey": stable_key(
                 "hotpotqa-run", f"{subject['id']}:{dataset['source']['revision']}"
             ),
@@ -525,6 +530,8 @@ def build_report(
     return {
         "generatedAtEpochSeconds": int(time.time()),
         "dataset": {
+            "catalogDatasetVersion": CATALOG_DATASET_VERSION,
+            "corpusSuiteVersion": dataset["suiteVersion"],
             "suiteVersion": dataset["suiteVersion"],
             "repository": dataset["source"]["repository"],
             "revision": dataset["source"]["revision"],
@@ -622,7 +629,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--evaluation-timeout", type=int, default=1800)
     parser.add_argument("--skip-import", action="store_true")
     parser.add_argument("--import-only", action="store_true")
-    parser.add_argument("--suite", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--suite", choices=("v1", "v2", "v3"), default="v1")
     return parser.parse_args()
 
 

@@ -10,6 +10,7 @@ import com.example.rag.graph.LocalGraphRetrievalService;
 import com.example.rag.graph.LocalGraphRetrievalService.Expansion;
 import com.example.rag.graph.LocalGraphRetrievalService.GraphCandidate;
 import com.example.rag.graph.LocalGraphRetrievalService.GraphPath;
+import com.example.rag.graph.LocalGraphRetrievalService.ShadowSeedDiagnostics;
 import com.example.rag.search.EvidenceContextService.ContextPlan;
 import com.example.rag.search.EvidenceContextService.ContextSeed;
 import com.example.rag.search.EvidenceContextService.Material;
@@ -24,6 +25,7 @@ import com.example.rag.search.SearchContracts.DebugStage;
 import com.example.rag.search.SearchContracts.EvidenceContext;
 import com.example.rag.search.SearchContracts.GraphMode;
 import com.example.rag.search.SearchContracts.GraphDiagnostics;
+import com.example.rag.search.SearchContracts.GraphEntityLinkShadowDiagnostics;
 import com.example.rag.search.SearchContracts.GraphPathView;
 import com.example.rag.search.SearchContracts.GlobalClaimView;
 import com.example.rag.search.SearchContracts.GlobalExecution;
@@ -758,6 +760,8 @@ public class SearchService {
         }
 
         Expansion graphExpansion = null;
+        ShadowSeedDiagnostics entityLinkShadow =
+                ShadowSeedDiagnostics.notRequested();
         boolean graphUsed = false;
         String graphDegradationCode = null;
         boolean tryLocalGraph =
@@ -1363,6 +1367,13 @@ public class SearchService {
                 finalAuthorization;
         Set<UUID> finalAuthorizedDocuments =
                 diagnosticAuthorization.keySet();
+        if (target != null && graphExpansion != null) {
+            entityLinkShadow = graphs.diagnoseEntityLinks(
+                    query,
+                    finalAuthorizedDocuments.stream().sorted().toList(),
+                    graphExpansion
+            );
+        }
         GraphDiagnostics graphDiagnostics = graphExpansion == null
                 ? GraphDiagnostics.empty()
                 : new GraphDiagnostics(
@@ -1392,7 +1403,18 @@ public class SearchService {
                                 candidate.rawGraphPaths().stream())
                         .map(GraphPath::relationshipId)
                         .distinct()
-                        .count()
+                        .count(),
+                new GraphEntityLinkShadowDiagnostics(
+                        entityLinkShadow.measured(),
+                        entityLinkShadow.seedEntityCount(),
+                        entityLinkShadow.seedDocumentIds()
+                                .stream()
+                                .filter(finalAuthorizedDocuments::contains)
+                                .toList(),
+                        entityLinkShadow.addedSeedEntityCount(),
+                        entityLinkShadow.matchModes(),
+                        entityLinkShadow.reasonCode()
+                )
         );
         return new SearchExecution(
                 active.indexName(),
