@@ -32,11 +32,12 @@
 | 能力 | 当前实现 |
 | --- | --- |
 | 多格式文档 | PDF、TXT、Markdown、HTML、DOCX、PPTX、XLSX、CSV 共用同一上传、Revision、Pipeline、索引和引用主链 |
-| 可追溯引用 | 回答只引用通过实时 ACL、当前 Revision 和 SourceLocator 复核的 Child Evidence |
+| 可追溯引用 | 回答结合问题与引用回答片段选择更精确的 SourceSpan，再复核其 ACL、当前 Revision 与来源位置 |
 | 混合检索 | BM25 与可选向量召回，经 RRF 合并、单次 Rerank、Evidence 预算和最终权限复核 |
-| GraphRAG | PostgreSQL 定向邻接表、不可变 Graph Generation、Local 多跳检索、Global Community Report |
+| GraphRAG | PostgreSQL 定向邻接表、不可变 Graph Generation、Local 多跳检索、受限拓扑核对与 Global Community Report |
 | 安全降级 | 模型或图分支不可用时按受控路径降级；PostgreSQL 权限复核不可用时 fail closed |
 | 用户记忆 | 默认关闭、用户确认、owner-scoped；文档事实仍必须重新进入 Evidence/Citation 链 |
+| 长会话上下文 | 异步滚动摘要保留最近 4 条原文；每次 Answer 与 Deep Global Map/Reduce 调用均遵循同一序列化请求预算策略，远程会话上下文需独立显式授权 |
 | 管理与评测 | 文档 Pipeline、索引与图发布、受限子图可视化、不可变 Dataset/Run/Baseline 和操作审计 |
 
 ## 快速开始
@@ -119,6 +120,8 @@ docker compose ps
 - `DEEP_GLOBAL`：只能显式选择，最多执行 8 次 Map 和 1 次 Reduce；`AUTO` 不会隐式触发。
 
 Graph 节点、关系和 Community Report 本身不能成为 Citation；用户看到的引用始终锚定当前有效的原文位置。
+
+管理员可在发布前通过受限局部拓扑浏览 `ACTIVE`、`READY` 或 `RETIRED` Generation，实体根节点支持 1–2 跳视图；节点与关系详情仍回溯当前有效的 Child 与 SourceSpan Evidence。
 
 ## 架构
 
@@ -233,12 +236,14 @@ docker compose up -d --build backend evaluation-worker
 
 HotpotQA v2 本地参考评测覆盖 50 个 Case（25 bridge、25 comparison）和 500 份文档：
 
-| 模式 | 双支撑 Revision 完整率 | Evidence Recall | 检索 Case p95 |
+| 模式 | 双支撑 Revision 完整率 | Gold Revision 级 Evidence Recall | 检索 Case p95 |
 | --- | ---: | ---: | ---: |
 | HYBRID | 84% | 91% | 1,648 ms |
 | LOCAL_GRAPH | 92% | 96% | 1,847 ms |
 
 同一参考评测中的结构化短答案为 EM 62%、F1 72.35%。Citation 解析硬门禁 100% 表示每个已生成引用均通过 ACL、Revision 与 SourceLocator 复核；Gold Revision Citation 覆盖率 72% 表示 72% 的 Case 引用了全部 Gold 支撑 Revision，两者口径不同。Refusal Contract 硬门禁为 100%。
+
+更严格的 HotpotQA v3 评测契约会把每条支持句解析到当前 Child 与 SourceSpan，并分别记录 BM25、向量召回、授权候选、Rerank、最终 Evidence 和 Citation 阶段的召回率。无法解析的支持事实会阻断 Case，而不是写入分数。Local Graph 诊断还会记录支撑来源种子、图候选和路径覆盖率；扩展实体名称匹配目前仅作为有界影子诊断，不会改变线上实体种子或候选结果。上表 v2 数值不代表 v3 Supporting Span 召回率。
 
 > [!NOTE]
 > 这 50 个 Case 已用于诊断与调优，属于本地参考/验证基线，不是 HotpotQA 官方排行榜结果，也不是未见盲测。表中 p95 是 Evaluation 的 RETRIEVAL/LOCAL_GRAPH Case 耗时，不是端到端 Chat 延迟；硬件与缓存冷热尚未版本化，因此仅作为本机观察值。完整渲染回答包含解释和引用标记，不能用其 token F1 代替结构化短答案准确度。

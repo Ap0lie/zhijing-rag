@@ -32,11 +32,12 @@ Terminology: a revision is an immutable document version, a Child is a searchabl
 | Area | Current implementation |
 | --- | --- |
 | Multi-format documents | PDF, TXT, Markdown, HTML, DOCX, PPTX, XLSX, and CSV share one upload, revision, pipeline, indexing, and citation lifecycle |
-| Traceable citations | Answers cite Child evidence only after live ACL, current-revision, and SourceLocator validation |
+| Traceable citations | Answers select a more precise SourceSpan using the question and cited answer segment, then revalidate its ACL, current revision, and source location |
 | Hybrid retrieval | BM25 plus optional vector recall, RRF fusion, one rerank, an evidence budget, and a final authorization check |
-| GraphRAG | Directed adjacency tables in PostgreSQL, immutable graph generations, local multi-hop retrieval, and global community reports |
+| GraphRAG | Directed adjacency tables in PostgreSQL, immutable graph generations, local multi-hop retrieval, bounded topology inspection, and global community reports |
 | Controlled fallback | Model and graph failures use explicit fallback paths; an unavailable PostgreSQL authorization check fails closed |
 | User memory | Off by default, user-confirmed, and owner-scoped; document facts must re-enter the evidence and citation path |
+| Long-conversation context | Asynchronous rolling summaries retain the four most recent original messages; each Answer and Deep Global Map/Reduce call follows the same serialized-request budget policy, and remote conversation context requires independent opt-in |
 | Administration and evaluation | Document pipelines, index/graph publication, bounded subgraph visualization, immutable datasets/runs/baselines, and audit events |
 
 ## Quick start
@@ -119,6 +120,8 @@ The default upload limit is 50 MiB. TXT, Markdown, HTML, and CSV also have a 10 
 - `DEEP_GLOBAL`: explicit only, with at most eight Map calls and one Reduce call. `AUTO` never triggers it implicitly.
 
 Graph nodes, relationships, and community reports cannot be citations. User-visible citations always anchor to a currently valid source location.
+
+Administrators can inspect `ACTIVE`, `READY`, or `RETIRED` generations through a bounded local topology before publication; entity roots support one- or two-hop views. Node and relationship details resolve back to currently valid Child and SourceSpan evidence.
 
 ## Architecture
 
@@ -233,12 +236,14 @@ Missing prerequisites produce `BLOCKED_PREREQUISITE`; the system does not write 
 
 The local HotpotQA v2 reference evaluation covered 50 cases (25 bridge and 25 comparison) across 500 documents:
 
-| Mode | Complete supporting-revision coverage | Evidence Recall | Retrieval-case p95 |
+| Mode | Complete supporting-revision coverage | Gold Revision Evidence Recall | Retrieval-case p95 |
 | --- | ---: | ---: | ---: |
 | HYBRID | 84% | 91% | 1,648 ms |
 | LOCAL_GRAPH | 92% | 96% | 1,847 ms |
 
 On the same reference evaluation, structured short-answer EM was 62% and F1 was 72.35%. The 100% citation-resolution hard gate means every generated citation passed ACL, revision, and SourceLocator validation; 72% Gold Revision citation coverage means 72% of cases cited every gold supporting revision. These are different denominators. The refusal-contract hard gate was 100%.
+
+The stricter HotpotQA v3 evaluation contract resolves each supporting sentence to the current Child and SourceSpan, then records recall separately for BM25, vector recall, authorized candidates, reranking, final Evidence, and citations. Unresolvable supporting facts block the case instead of producing a score. Local Graph diagnostics additionally measure supporting-source seeds, graph candidates, and path coverage. Broader entity-name matching remains a bounded shadow-only diagnostic and never changes online seeds or candidates. No v3 supporting-span score is claimed in the v2 table above.
 
 > [!NOTE]
 > These 50 cases were used for diagnosis and tuning. They are a local reference/validation baseline, not an official HotpotQA leaderboard result or an unseen blind test. The table reports Evaluation RETRIEVAL/LOCAL_GRAPH case duration, not end-to-end Chat latency; hardware and cache warmness were not versioned, so p95 is only a local observation. A rendered answer contains explanations and citation markers, so its token F1 must not be presented as structured short-answer accuracy.
